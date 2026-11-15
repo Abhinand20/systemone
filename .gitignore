@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+
+# Generated run outputs & rendered media cache
+experiments/results/*
+!experiments/results/.gitkeep
+experiments/media/*
+!experiments/media/.gitkeep
