@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from typing import Any
 
 from typesafe_sdk import AsyncTypeSafeClient, Choice, Image, RetryPolicy
@@ -26,6 +27,19 @@ def _to_serializable(obj: Any) -> dict[str, Any] | str | None:
     if isinstance(obj, dict):
         return obj
     return str(obj)
+
+
+def _parse_state_text(state_text: str) -> Any:
+    """Parse JSON object/array state_text into native Content for TypeSafe; keep plain text as str."""
+    stripped = state_text.strip()
+    if stripped and stripped[0] in ("{", "["):
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError:
+            return state_text
+        if isinstance(parsed, (dict, list)):
+            return parsed
+    return state_text
 
 
 class TypeSafeJevAdapter(DecisionModelAdapter):
@@ -70,7 +84,7 @@ class TypeSafeJevAdapter(DecisionModelAdapter):
                 key = extra_frame.frame_id if extra_frame.frame_id != "board_image" else f"board_image_{idx}"
                 state[key] = Image(extra_frame.png_bytes)
         if request.state_text is not None:
-            state["game_state"] = request.state_text
+            state["game_state"] = _parse_state_text(request.state_text)
 
         extra_headers: dict[str, str] | None = None
         if request.frames:
@@ -86,7 +100,10 @@ class TypeSafeJevAdapter(DecisionModelAdapter):
         payload_hash = compute_request_payload_hash(
             self.model_config.model_id,
             request,
-            extra={"danger_zone_images": bool(request.frames)},
+            extra={
+                "danger_zone_images": bool(request.frames),
+                "structured_game_state": isinstance(state.get("game_state"), (dict, list)),
+            },
         )
 
         stats = RetryStats()

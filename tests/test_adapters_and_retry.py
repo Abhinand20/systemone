@@ -24,6 +24,7 @@ from dm_bench.adapters import (
     close_adapters,
     is_transient_error,
 )
+from dm_bench.adapters.base import _resolve_optimal_actions
 from dm_bench.config import (
     BudgetExceededError,
     BudgetTracker,
@@ -321,10 +322,13 @@ async def test_typesafe_jev_adapter_danger_zone_header_and_retry() -> None:
     assert res_vt.api_cost_usd == pytest.approx((400 / 1_000_000) * 0.042)
     assert calls[-1]["extra_headers"] == {"TypeSafe-Danger-Zone-Images": "true"}
     assert "board_image" in calls[-1]["state"]
-    assert calls[-1]["state"]["game_state"] == req_vt.state_text
+    assert isinstance(calls[-1]["state"]["game_state"], dict)
+    assert calls[-1]["state"]["game_state"] == json.loads(req_vt.state_text or "")
+    assert "R1" in calls[-1]["state"]["game_state"]["board"]
+    assert "R1C1" in calls[-1]["state"]["game_state"]["board"]["R1"]
     assert calls[-1]["questions"]["action"].instructions == req_vt.objective_instructions
 
-    # Text-only request MUST NOT send Danger-Zone-Images header and has only game_state.
+    # Text-only request MUST NOT send Danger-Zone-Images header and parses JSON into native dict.
     req_t = _sample_board_and_request(
         row_id="B_jev_T",
         condition_code="B-DM-T",
@@ -337,9 +341,48 @@ async def test_typesafe_jev_adapter_danger_zone_header_and_retry() -> None:
     assert res_t.retries == 0
     assert calls[-1]["extra_headers"] is None
     assert list(calls[-1]["state"].keys()) == ["game_state"]
+    assert isinstance(calls[-1]["state"]["game_state"], dict)
+    assert calls[-1]["state"]["game_state"] == json.loads(req_t.state_text or "")
+
+    # Non-JSON text formats (e.g., ascii_grid) pass through unchanged as str.
+    req_ascii = _sample_board_and_request(
+        row_id="B_jev_T",
+        condition_code="B-DM-T",
+        use_vision=False,
+        use_text=True,
+        render_variant=None,
+        text_format="ascii_grid",
+    )
+    res_ascii = await adapter.decide(req_ascii)
+    assert res_ascii.response_valid is True
+    assert isinstance(calls[-1]["state"]["game_state"], str)
+    assert calls[-1]["state"]["game_state"] == req_ascii.state_text
 
     await adapter.close()
     assert client.closed is True
+
+
+def test_resolve_optimal_actions_from_structured_json_state() -> None:
+    board = ["X", "X", ".", ".", "O", ".", ".", ".", "."]
+    state_text = format_ttt_state(board, "O", text_format="json_canonical")
+    req = PolicyRequest(
+        episode_id="pos_struct_001",
+        step_idx=0,
+        row_id="B_jev_T",
+        condition_code="B-DM-T",
+        model_key="jev_1_14_0",
+        objective_instructions="Choose the single best Tic-Tac-Toe move.",
+        action_criteria=dict(ACTION_CRITERIA),
+        frames=[],
+        state_text=state_text,
+        render_variant=None,
+        text_format="json_canonical",
+        action_mode="all_9",
+        player_to_move=None,
+        legal_actions=list(legal_action_keys(board)),
+        metadata={},
+    )
+    assert _resolve_optimal_actions(req) == ["R1C3"]
 
 
 async def test_gemini_decision_adapter_v1beta_and_safety_no_retry() -> None:

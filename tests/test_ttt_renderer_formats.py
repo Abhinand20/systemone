@@ -82,12 +82,18 @@ def test_all_four_text_formats() -> None:
     history = (0, 2, 4, 8)
     state = TTTState(board=board, player_to_move="X", move_history=history, starting_player="X")
 
+    expected_board = {
+        "R1": {"R1C1": "X", "R1C2": "empty", "R1C3": "O"},
+        "R2": {"R2C1": "empty", "R2C2": "X", "R2C3": "empty"},
+        "R3": {"R3C1": "empty", "R3C2": "empty", "R3C3": "O"},
+    }
+
     # 1. json_canonical
     jc = format_ttt_state(board, "X", "json_canonical")
     assert json.loads(jc) == {
         "game": "tic_tac_toe",
-        "board": list(board),
         "player_to_move": "X",
+        "board": expected_board,
     }
     assert format_state(state, "json_canonical") == jc
 
@@ -122,8 +128,8 @@ def test_all_four_text_formats() -> None:
     jh = format_ttt_state(board, "X", "json_with_history", move_history=history)
     assert json.loads(jh) == {
         "game": "tic_tac_toe",
-        "board": list(board),
         "player_to_move": "X",
+        "board": expected_board,
         "move_history": ["R1C1", "R1C3", "R2C2", "R3C3"],
     }
     assert format_state(state, "json_with_history") == jh

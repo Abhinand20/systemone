@@ -52,6 +52,30 @@ def _normalize_history_keys(move_history: Sequence[int | str] | None) -> list[st
     return keys
 
 
+def _cell_label(cell: str) -> str:
+    return "empty" if cell == "." else cell
+
+
+def _build_structured_board(validated_board: tuple[str, ...]) -> dict[str, dict[str, str]]:
+    return {
+        "R1": {
+            "R1C1": _cell_label(validated_board[0]),
+            "R1C2": _cell_label(validated_board[1]),
+            "R1C3": _cell_label(validated_board[2]),
+        },
+        "R2": {
+            "R2C1": _cell_label(validated_board[3]),
+            "R2C2": _cell_label(validated_board[4]),
+            "R2C3": _cell_label(validated_board[5]),
+        },
+        "R3": {
+            "R3C1": _cell_label(validated_board[6]),
+            "R3C2": _cell_label(validated_board[7]),
+            "R3C3": _cell_label(validated_board[8]),
+        },
+    }
+
+
 def format_ttt_state(
     board: Sequence[str],
     player_to_move: Mark,
@@ -64,8 +88,8 @@ def format_ttt_state(
     if text_format == "json_canonical":
         payload = {
             "game": "tic_tac_toe",
-            "board": list(validated_board),
             "player_to_move": player_to_move,
+            "board": _build_structured_board(validated_board),
         }
         return json.dumps(payload)
 
@@ -87,15 +111,15 @@ def format_ttt_state(
             "Board cells:",
         ]
         for key, cell in zip(CELL_KEYS, validated_board):
-            label = "empty" if cell == "." else cell
+            label = _cell_label(cell)
             lines.append(f"- {key}: {label}")
         return "\n".join(lines)
 
     if text_format == "json_with_history":
         payload = {
             "game": "tic_tac_toe",
-            "board": list(validated_board),
             "player_to_move": player_to_move,
+            "board": _build_structured_board(validated_board),
             "move_history": _normalize_history_keys(move_history),
         }
         return json.dumps(payload)

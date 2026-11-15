@@ -10,7 +10,7 @@ from typing import Any
 
 from dm_bench.config import ModelConfig, PromptConfig
 from dm_bench.contracts import PolicyRequest, PolicyResult
-from dm_bench.games.tic_tac_toe.engine import is_terminal
+from dm_bench.games.tic_tac_toe.engine import CELL_KEYS, is_terminal
 from dm_bench.games.tic_tac_toe.oracle import analyze_position
 from dm_bench.logging_io import sha256_bytes, sha256_json
 
@@ -82,6 +82,22 @@ def _deterministic_rng(request: PolicyRequest) -> random.Random:
     return random.Random(seed_int)
 
 
+def _normalize_board_cells(raw_board: Any) -> list[str] | None:
+    """Normalize a 9-element list or nested/flat R1C1..R3C3 board dict into 9-char cells."""
+    if isinstance(raw_board, (list, tuple)) and len(raw_board) == 9:
+        return ["." if str(c) == "empty" else str(c) for c in raw_board]
+    if isinstance(raw_board, dict):
+        flat: dict[str, Any] = {}
+        for k, v in raw_board.items():
+            if isinstance(v, dict):
+                flat.update(v)
+            else:
+                flat[str(k)] = v
+        if all(ck in flat for ck in CELL_KEYS):
+            return ["." if str(flat[ck]) == "empty" else str(flat[ck]) for ck in CELL_KEYS]
+    return None
+
+
 def _resolve_optimal_actions(request: PolicyRequest) -> list[str]:
     """Resolve minimax-optimal actions from request metadata or JSON state_text if available."""
     meta_opt = request.metadata.get("optimal_actions")
@@ -101,14 +117,15 @@ def _resolve_optimal_actions(request: PolicyRequest) -> list[str]:
                 board = board or parsed.get("board")
                 player = player or parsed.get("player_to_move")
 
+    norm_board = _normalize_board_cells(board)
     if (
-        isinstance(board, (list, tuple))
-        and len(board) == 9
+        norm_board is not None
+        and all(c in ("X", "O", ".") for c in norm_board)
         and player in ("X", "O")
-        and not is_terminal(board)
+        and not is_terminal(norm_board)
     ):
         try:
-            analysis = analyze_position(board, player)
+            analysis = analyze_position(norm_board, player)
             return list(analysis.optimal_actions)
         except Exception:
             pass
