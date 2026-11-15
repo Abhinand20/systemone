@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dm-bench Trace Viewer</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --surface: #111827;
+      --surface-2: #1e293b;
+      --surface-3: #0f172a;
+      --border: #283548;
+      --border-strong: #3b4f6b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56, 189, 248, 0.14);
+      --green: #10b981;
+      --green-soft: rgba(16, 185, 129, 0.16);
+      --amber: #f59e0b;
+      --amber-soft: rgba(245, 158, 11, 0.16);
+      --red: #ef4444;
+      --red-soft: rgba(239, 68, 68, 0.16);
+      --rose: #fb7185;
+      --rose-soft: rgba(251, 113, 133, 0.16);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 20px;
+      background: rgba(11, 17, 32, 0.94);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .brand span {
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .run-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .run-controls label {
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    select, button, input[type="range"] {
+      font-family: inherit;
+      font-size: 13px;
+    }
+
+    select, button {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      outline: none;
+    }
+    select:focus, button:focus-visible {
+      border-color: var(--accent);
+    }
+    button {
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    button:hover:not(:disabled) {
+      background: #273549;
+      border-color: var(--border-strong);
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    button.primary {
+      background: var(--accent-soft);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #bae6fd;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 0 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      padding: 11px 14px;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .tab-btn:hover {
+      background: transparent;
+      color: var(--text);
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .container {
+      padding: 16px 20px 36px;
+      max-width: 1680px;
+      margin: 0 auto;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: flex-end;
+      padding: 12px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 135px;
+    }
+    .filter-group label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--mono);
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge-green { background: var(--green-soft); color: #6ee7b7; border-color: rgba(16,185,129,0.35); }
+    .badge-amber { background: var(--amber-soft); color: #fcd34d; border-color: rgba(245,158,11,0.35); }
+    .badge-red { background: var(--red-soft); color: #fca5a5; border-color: rgba(239,68,68,0.35); }
+    .badge-rose { background: var(--rose-soft); color: #fda4af; border-color: rgba(251,113,133,0.35); }
+    .badge-blue { background: var(--accent-soft); color: #7dd3fc; border-color: rgba(56,189,248,0.35); }
+    .badge-slate { background: rgba(148,163,184,0.14); color: #cbd5e1; border-color: rgba(148,163,184,0.28); }
+
+    /* Tab 1 Layout */
+    .split-layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 1080px) {
+      .split-layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--surface-3);
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .panel-body { padding: 14px; }
+
+    .decision-list {
+      max-height: 72vh;
+      overflow-y: auto;
+    }
+    .decision-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.1s ease;
+    }
+    .decision-item:hover { background: rgba(56, 189, 248, 0.06); }
+    .decision-item.selected {
+      background: rgba(56, 189, 248, 0.12);
+      border-left: 3px solid var(--accent);
+      padding-left: 9px;
+    }
+    .decision-item-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .decision-item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--mono);
+    }
+
+    .pager {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-3);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .inspection-strip {
+      display: grid;
+      grid-template-columns: 280px 260px 1fr;
+      gap: 16px;
+      margin-bottom: 18px;
+      align-items: start;
+    }
+    @media (max-width: 1280px) {
+      .inspection-strip { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 780px) {
+      .inspection-strip { grid-template-columns: 1fr; }
+    }
+
+    .card-box {
+      background: var(--surface-3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .card-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 700;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .board-frame-img {
+      width: 100%;
+      max-width: 256px;
+      aspect-ratio: 1 / 1;
+      display: block;
+      margin: 0 auto;
+      border-radius: 6px;
+      border: 1px solid var(--border-strong);
+      background: #020617;
+      object-fit: contain;
+    }
+
+    .oracle-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      max-width: 236px;
+      margin: 0 auto;
+    }
+    .oracle-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      position: relative;
+    }
+    .oracle-cell.optimal {
+      border-color: var(--green);
+      background: rgba(16, 185, 129, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.4);
+    }
+    .oracle-cell.mark-x { color: #60a5fa; font-size: 22px; font-weight: 800; }
+    .oracle-cell.mark-o { color: #f87171; font-size: 22px; font-weight: 800; }
+    .oracle-cell .cell-coord {
+      font-size: 9px;
+      color: var(--text-dim);
+      position: absolute;
+      top: 3px;
+      left: 4px;
+    }
+    .oracle-cell .cell-val {
+      font-size: 15px;
+      font-weight: 700;
+      margin-top: 6px;
+    }
+    .oracle-cell .cell-val.v-pos { color: #34d399; }
+    .oracle-cell .cell-val.v-zero { color: #e2e8f0; }
+    .oracle-cell .cell-val.v-neg { color: #f87171; }
+
+    pre.payload-box {
+      margin: 0;
+      padding: 10px 12px;
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (max-width: 1320px) {
+      .matrix-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 820px) {
+      .matrix-grid { grid-template-columns: 1fr; }
+    }
+
+    .matrix-card {
+      background: var(--surface-3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .matrix-card.status-optimal { border-top: 3px solid var(--green); }
+    .matrix-card.status-suboptimal { border-top: 3px solid var(--amber); }
+    .matrix-card.status-illegal { border-top: 3px solid var(--rose); }
+    .matrix-card.status-invalid { border-top: 3px solid var(--red); }
+
+    .matrix-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .row-title {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .row-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .kv-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 10px;
+      font-size: 12px;
+      padding: 8px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(40, 53, 72, 0.7);
+      border-radius: 6px;
+    }
+    .kv-item span.k {
+      color: var(--text-dim);
+      display: block;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .kv-item span.v {
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .prob-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 2px;
+    }
+    .prob-row {
+      display: grid;
+      grid-template-columns: 44px 1fr 48px;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    .prob-key {
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .prob-key.chosen { color: var(--accent); font-weight: 700; }
+    .prob-bar-bg {
+      height: 10px;
+      background: #020617;
+      border-radius: 4px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .prob-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+    }
+    .prob-bar-fill.opt { background: var(--green); }
+    .prob-bar-fill.illegal { background: var(--rose); }
+    .prob-pct {
+      text-align: right;
+      color: var(--text-muted);
+    }
+
+    /* Tab 2 Layout */
+    .table-wrap {
+      overflow-x: auto;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: var(--surface-3);
+      color: var(--text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      z-index: 2;
+    }
+    tr.ep-row { cursor: pointer; }
+    tr.ep-row:hover { background: rgba(56, 189, 248, 0.07); }
+    tr.ep-row.selected { background: rgba(56, 189, 248, 0.15); }
+
+    .scrubber-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--surface-3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+    .scrubber-controls input[type="range"] {
+      flex: 1;
+      min-width: 160px;
+      accent-color: var(--accent);
+    }
+    .step-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .step-layout { grid-template-columns: 1fr; }
+    }
+
+    .empty-state {
+      padding: 28px 18px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .mono { font-family: var(--mono); }
+    .muted { color: var(--text-muted); }
+    .variant-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .pill-btn {
+      font-size: 11px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-family: var(--mono);
+    }
+    .pill-btn.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: #bae6fd;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>dm-bench Trace Viewer</h1>
+      <span>Tic-Tac-Toe · T1–T6 Inspector</span>
+    </div>
+    <div class="run-controls">
+      <label for="run-select">Run</label>
+      <select id="run-select" aria-label="Experiment run selector"></select>
+      <button id="refresh-runs-btn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab-btn active" data-tab="offline" role="tab" aria-selected="true">
+      Offline Decision Inspector &amp; 9-Way Matrix
+    </button>
+    <button class="tab-btn" data-tab="episodes" role="tab" aria-selected="false">
+      Closed-Loop Episode Scrubber (T6)
+    </button>
+  </nav>
+
+  <main class="container">
+    <!-- TAB 1: Offline Decision Inspector & 9-Way Matrix -->
+    <section id="tab-offline" class="tab-panel active">
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label for="f-row">Row</label>
+          <select id="f-row"><option value="">All rows</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="f-cond">Condition</label>
+          <select id="f-cond"><option value="">All conditions</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="f-tac">Tactical Category</label>
+          <select id="f-tac"><option value="">All categories</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="f-fail">Failure Filter</label>
+          <select id="f-fail">
+            <option value="all">All decisions</option>
+            <option value="failures">All failures</option>
+            <option value="illegal">Illegal move</option>
+            <option value="suboptimal">Suboptimal legal</option>
+            <option value="invalid">Invalid / API error</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="f-render">Render Variant</label>
+          <select id="f-render"><option value="">All renders</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="f-text">Text Format</label>
+          <select id="f-text"><option value="">All formats</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="f-mode">Action Mode</label>
+          <select id="f-mode"><option value="">All modes</option></select>
+        </div>
+        <button id="f-reset" type="button">Reset Filters</button>
+      </div>
+
+      <div class="split-layout">
+        <div class="panel">
+          <div class="panel-header">
+            <span>Decisions</span>
+            <span id="decisions-count" class="mono muted">0</span>
+          </div>
+          <div id="decision-list" class="decision-list">
+            <div class="empty-state">Select a run to inspect decisions.</div>
+          </div>
+          <div class="pager">
+            <button id="dec-prev" type="button">Prev</button>
+            <span id="dec-page-info" class="mono">0 / 0</span>
+            <button id="dec-next" type="button">Next</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span id="matrix-title">Position Detail &amp; 9-Way Matrix</span>
+            <div id="matrix-badges" class="variant-pills"></div>
+          </div>
+          <div id="matrix-detail" class="panel-body">
+            <div class="empty-state">Click a decision on the left to inspect its 512×512 frame, oracle minimax overlay, text payload, and 9-way model matrix.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: Closed-Loop Episode Scrubber (T6) -->
+    <section id="tab-episodes" class="tab-panel">
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label for="ep-opp">Opponent</label>
+          <select id="ep-opp"><option value="">All opponents</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="ep-row">Row</label>
+          <select id="ep-row"><option value="">All rows</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="ep-outcome">Outcome</label>
+          <select id="ep-outcome"><option value="">All outcomes</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="ep-mode">Action Mode</label>
+          <select id="ep-mode"><option value="">All modes</option></select>
+        </div>
+        <button id="ep-reset" type="button">Reset Filters</button>
+      </div>
+
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-header">
+          <span>T6 Episodes</span>
+          <span id="episodes-count" class="mono muted">0</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Episode ID</th>
+                <th>Row</th>
+                <th>Opponent</th>
+                <th>Mode</th>
+                <th>Mark / Order</th>
+                <th>Outcome</th>
+                <th>Plies</th>
+                <th>Illegal</th>
+                <th>Cost (USD)</th>
+                <th>Mean Regret</th>
+              </tr>
+            </thead>
+            <tbody id="episodes-tbody">
+              <tr><td colspan="10" class="empty-state">No episodes loaded.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span id="replay-title">Episode Replay Scrubber</span>
+          <span id="replay-summary-badges" class="variant-pills"></span>
+        </div>
+        <div id="replay-body" class="panel-body">
+          <div class="empty-state">Select a T6 episode above to scrub through turns step by step (use ← / → arrow keys).</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const CELL_KEYS = ["R1C1", "R1C2", "R1C3", "R2C1", "R2C2", "R2C3", "R3C1", "R3C2", "R3C3"];
+
+    const state = {
+      runs: [],
+      selectedRun: null,
+      activeTab: "offline",
+      decisions: [],
+      decisionsTotal: 0,
+      decisionsOffset: 0,
+      decisionsLimit: 40,
+      selectedDecisionKey: null,
+      currentMatrix: null,
+      matrixVariantFilter: { render_variant: null, text_format: null, action_mode: null },
+      episodes: [],
+      episodesTotal: 0,
+      selectedEpisodeKey: null,
+      currentReplay: null,
+      replayStepIdx: 0,
+    };
+
+    function esc(value) {
+      if (value === null || value === undefined) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function fmtMs(val) {
+      if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
+      return `${Number(val).toFixed(0)} ms`;
+    }
+
+    function fmtCost(val) {
+      if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
+      return `$${Number(val).toFixed(5)}`;
+    }
+
+    function fmtNum(val, digits = 3) {
+      if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
+      return Number(val).toFixed(digits);
+    }
+
+    function statusInfo(row) {
+      if (!row.response_valid) {
+        return { cls: "status-invalid", badgeCls: "badge-red", label: row.error_type ? `INVALID (${row.error_type})` : "INVALID" };
+      }
+      if (!row.action_is_legal) {
+        return { cls: "status-illegal", badgeCls: "badge-rose", label: "ILLEGAL FORFEIT" };
+      }
+      if (row.action_is_optimal) {
+        return { cls: "status-optimal", badgeCls: "badge-green", label: "OPTIMAL" };
+      }
+      const regret = row.legal_regret !== null && row.legal_regret !== undefined ? ` (regret ${row.legal_regret})` : "";
+      return { cls: "status-suboptimal", badgeCls: "badge-amber", label: `SUBOPTIMAL${regret}` };
+    }
+
+    function outcomeBadge(outcome) {
+      if (outcome === "win") return '<span class="badge badge-green">win</span>';
+      if (outcome === "draw") return '<span class="badge badge-blue">draw</span>';
+      if (outcome === "loss_by_board") return '<span class="badge badge-amber">loss_by_board</span>';
+      if (outcome === "loss_by_illegal_move") return '<span class="badge badge-rose">loss_by_illegal_move</span>';
+      return `<span class="badge badge-slate">${esc(outcome || "unknown")}</span>`;
+    }
+
+    function renderFallbackSvgBoard(board, playerToMove) {
+      const cells = (board && board.length === 9) ? board : [".",".",".",".",".",".",".",".","."];
+      let marks = "";
+      for (let i = 0; i < 9; i++) {
+        const r = Math.floor(i / 3);
+        const c = i % 3;
+        const cx = 36 + c * 88 + 44;
+        const cy = 62 + r * 88 + 44;
+        if (cells[i] === "X") {
+          marks += `<line x1="${cx-24}" y1="${cy-24}" x2="${cx+24}" y2="${cy+24}" stroke="#3b82f6" stroke-width="6" stroke-linecap="round"/>`;
+          marks += `<line x1="${cx+24}" y1="${cy-24}" x2="${cx-24}" y2="${cy+24}" stroke="#3b82f6" stroke-width="6" stroke-linecap="round"/>`;
+        } else if (cells[i] === "O") {
+          marks += `<circle cx="${cx}" cy="${cy}" r="25" fill="none" stroke="#ef4444" stroke-width="6"/>`;
+        }
+      }
+      return `
+        <svg viewBox="0 0 336 336" class="board-frame-img" role="img" aria-label="Tic-Tac-Toe board">
+          <rect width="336" height="336" fill="#0f172a"/>
+          <text x="168" y="34" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700" font-family="monospace">Player to move: ${esc(playerToMove || "?")}</text>
+          <line x1="124" y1="62" x2="124" y2="326" stroke="#475569" stroke-width="4"/>
+          <line x1="212" y1="62" x2="212" y2="326" stroke="#475569" stroke-width="4"/>
+          <line x1="36" y1="150" x2="300" y2="150" stroke="#475569" stroke-width="4"/>
+          <line x1="36" y1="238" x2="300" y2="238" stroke="#475569" stroke-width="4"/>
+          ${marks}
+        </svg>
+      `;
+    }
+
+    function renderOracleGrid(board, actionValues, optimalActions) {
+      const b = (board && board.length === 9) ? board : [".",".",".",".",".",".",".",".","."];
+      const vals = actionValues || {};
+      const opts = new Set(optimalActions || []);
+      return `
+        <div class="oracle-grid">
+          ${CELL_KEYS.map((key, idx) => {
+            const cell = b[idx];
+            const isOpt = opts.has(key);
+            if (cell === "X" || cell === "O") {
+              const mCls = cell === "X" ? "mark-x" : "mark-o";
+              return `<div class="oracle-cell ${mCls}"><span class="cell-coord">${key}</span>${cell}</div>`;
+            }
+            const v = vals[key];
+            let valText = "·";
+            let vCls = "";
+            if (v !== undefined && v !== null) {
+              valText = v > 0 ? `+${v}` : `${v}`;
+              vCls = v > 0 ? "v-pos" : (v < 0 ? "v-neg" : "v-zero");
+            }
+            return `
+              <div class="oracle-cell ${isOpt ? "optimal" : ""}">
+                <span class="cell-coord">${key}</span>
+                <span class="cell-val ${vCls}">${valText}</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    function renderProbBars(probs, optimalActions, legalActions, chosenAction) {
+      if (!probs) {
+        return '<div class="muted" style="font-size:12px;">No probability vector (generative / unavailable)</div>';
+      }
+      const optSet = new Set(optimalActions || []);
+      const legalSet = new Set(legalActions || []);
+      return `
+        <div class="prob-list">
+          ${CELL_KEYS.map((key) => {
+            const p = Number(probs[key] ?? 0);
+            const pct = Math.max(0, Math.min(100, p * 100));
+            const isChosen = chosenAction === key;
+            const isOpt = optSet.has(key);
+            const isIllegal = legalSet.size > 0 && !legalSet.has(key);
+            const fillCls = isOpt ? "opt" : (isIllegal ? "illegal" : "");
+            return `
+              <div class="prob-row">
+                <span class="prob-key ${isChosen ? "chosen" : ""}">${isChosen ? "▶" : " "} ${key}</span>
+                <div class="prob-bar-bg">
+                  <div class="prob-bar-fill ${fillCls}" style="width:${pct.toFixed(1)}%"></div>
+                </div>
+                <span class="prob-pct">${pct.toFixed(1)}%</span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    function populateSelect(selectEl, values, defaultLabel) {
+      const current = selectEl.value;
+      const options = [`<option value="">${esc(defaultLabel)}</option>`];
+      for (const v of values || []) {
+        options.push(`<option value="${esc(v)}">${esc(v)}</option>`);
+      }
+      selectEl.innerHTML = options.join("");
+      if (values && values.includes(current)) {
+        selectEl.value = current;
+      }
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+      return res.json();
+    }
+
+    async function loadRuns() {
+      const data = await fetchJson("/api/runs");
+      state.runs = data.runs || [];
+      const select = document.getElementById("run-select");
+      if (state.runs.length === 0) {
+        select.innerHTML = '<option value="">No runs found under experiments/results/</option>';
+        state.selectedRun = null;
+        renderEmptyRuns();
+        return;
+      }
+      select.innerHTML = state.runs.map((r, idx) => {
+        const label = `${r.experiment_id} / ${r.run_id} · ${r.status || "unknown"} · ${r.total_decisions ?? 0} dec / ${r.total_episodes ?? 0} ep · $${Number(r.total_spent_usd ?? 0).toFixed(3)}`;
+        return `<option value="${idx}">${esc(label)}</option>`;
+      }).join("");
+
+      const preferredIdx = state.selectedRun
+        ? state.runs.findIndex((r) => r.experiment_id === state.selectedRun.experiment_id && r.run_id === state.selectedRun.run_id)
+        : 0;
+      const idx = preferredIdx >= 0 ? preferredIdx : 0;
+      select.value = String(idx);
+      onRunChanged(idx);
+    }
+
+    function renderEmptyRuns() {
+      document.getElementById("decision-list").innerHTML = '<div class="empty-state">No experiment runs found yet. Run <code>bench smoke --mock</code> or <code>bench eval</code>.</div>';
+      document.getElementById("matrix-detail").innerHTML = '<div class="empty-state">No run selected.</div>';
+      document.getElementById("episodes-tbody").innerHTML = '<tr><td colspan="10" class="empty-state">No run selected.</td></tr>';
+      document.getElementById("replay-body").innerHTML = '<div class="empty-state">No run selected.</div>';
+    }
+
+    async function onRunChanged(idx) {
+      state.selectedRun = state.runs[idx] || null;
+      state.decisionsOffset = 0;
+      state.selectedDecisionKey = null;
+      state.currentMatrix = null;
+      state.selectedEpisodeKey = null;
+      state.currentReplay = null;
+      if (!state.selectedRun) {
+        renderEmptyRuns();
+        return;
+      }
+      await Promise.all([loadDecisions(), loadEpisodes()]);
+    }
+
+    function buildDecisionQuery() {
+      const params = new URLSearchParams();
+      params.set("offset", String(state.decisionsOffset));
+      params.set("limit", String(state.decisionsLimit));
+      const pairs = [
+        ["row_id", "f-row"],
+        ["condition", "f-cond"],
+        ["tactical_category", "f-tac"],
+        ["failure_filter", "f-fail"],
+        ["render_variant", "f-render"],
+        ["text_format", "f-text"],
+        ["action_mode", "f-mode"],
+      ];
+      for (const [key, id] of pairs) {
+        const val = document.getElementById(id).value;
+        if (val && !(key === "failure_filter" && val === "all")) {
+          params.set(key, val);
+        }
+      }
+      return params.toString();
+    }
+
+    async function loadDecisions() {
+      if (!state.selectedRun) return;
+      const { experiment_id, run_id } = state.selectedRun;
+      const data = await fetchJson(`/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/decisions?${buildDecisionQuery()}`);
+      state.decisions = data.decisions || [];
+      state.decisionsTotal = data.total || 0;
+
+      const facets = data.facets || {};
+      populateSelect(document.getElementById("f-row"), facets.row_ids, "All rows");
+      populateSelect(document.getElementById("f-cond"), facets.conditions, "All conditions");
+      populateSelect(document.getElementById("f-tac"), facets.tactical_categories, "All categories");
+      populateSelect(document.getElementById("f-render"), facets.render_variants, "All renders");
+      populateSelect(document.getElementById("f-text"), facets.text_formats, "All formats");
+      populateSelect(document.getElementById("f-mode"), facets.action_modes, "All modes");
+
+      document.getElementById("decisions-count").textContent = `${state.decisionsTotal} matched`;
+      const start = state.decisionsTotal === 0 ? 0 : state.decisionsOffset + 1;
+      const end = Math.min(state.decisionsOffset + state.decisions.length, state.decisionsTotal);
+      document.getElementById("dec-page-info").textContent = `${start}–${end} / ${state.decisionsTotal}`;
+      document.getElementById("dec-prev").disabled = state.decisionsOffset <= 0;
+      document.getElementById("dec-next").disabled = state.decisionsOffset + state.decisionsLimit >= state.decisionsTotal;
+
+      const listEl = document.getElementById("decision-list");
+      if (state.decisions.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">No decisions match the active filters.</div>';
+        return;
+      }
+
+      listEl.innerHTML = state.decisions.map((d, idx) => {
+        const st = statusInfo(d);
+        const key = `${d.episode_id}::${d.row_id}::${d.step_idx}::${d.render_variant}::${d.text_format}::${d.action_mode}`;
+        const sel = key === state.selectedDecisionKey ? "selected" : "";
+        return `
+          <div class="decision-item ${sel}" data-idx="${idx}">
+            <div class="decision-item-top">
+              <strong class="mono">${esc(d.episode_id)}</strong>
+              <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
+            </div>
+            <div class="decision-item-meta">
+              <span>${esc(d.row_id)}</span>
+              <span>·</span>
+              <span>${esc(d.tactical_category || "—")}</span>
+              <span>·</span>
+              <span>act=${esc(d.requested_action ?? "None")}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      listEl.querySelectorAll(".decision-item").forEach((el) => {
+        el.addEventListener("click", () => {
+          const d = state.decisions[Number(el.dataset.idx)];
+          if (d) selectDecision(d);
+        });
+      });
+
+      if (!state.selectedDecisionKey && state.decisions.length > 0) {
+        selectDecision(state.decisions[0]);
+      }
+    }
+
+    async function selectDecision(d) {
+      state.selectedDecisionKey = `${d.episode_id}::${d.row_id}::${d.step_idx}::${d.render_variant}::${d.text_format}::${d.action_mode}`;
+      state.matrixVariantFilter = {
+        render_variant: d.render_variant || null,
+        text_format: d.text_format || null,
+        action_mode: d.action_mode || null,
+      };
+      document.querySelectorAll(".decision-item").forEach((el, idx) => {
+        const item = state.decisions[idx];
+        const key = item ? `${item.episode_id}::${item.row_id}::${item.step_idx}::${item.render_variant}::${item.text_format}::${item.action_mode}` : "";
+        el.classList.toggle("selected", key === state.selectedDecisionKey);
+      });
+      await loadMatrix(d.episode_id);
+    }
+
+    async function loadMatrix(episodeId) {
+      if (!state.selectedRun) return;
+      const { experiment_id, run_id } = state.selectedRun;
+      const data = await fetchJson(`/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/matrix/${encodeURIComponent(episodeId)}`);
+      state.currentMatrix = data;
+      renderMatrix();
+    }
+
+    function renderMatrix() {
+      const m = state.currentMatrix;
+      if (!m) return;
+
+      document.getElementById("matrix-title").textContent = `Position ${m.episode_id} · 9-Way Side-by-Side Matrix`;
+      const stateValStr = m.state_value === null || m.state_value === undefined ? "?" : (m.state_value > 0 ? `+${m.state_value}` : String(m.state_value));
+      document.getElementById("matrix-badges").innerHTML = `
+        <span class="badge badge-blue">turn=${esc(m.player_to_move || "?")}</span>
+        <span class="badge badge-slate">ply=${esc(m.ply ?? 0)}</span>
+        <span class="badge badge-slate">v*=${esc(stateValStr)}</span>
+        <span class="badge badge-green">opt=${esc((m.optimal_actions || []).join(", ") || "—")}</span>
+        ${m.tactical_category ? `<span class="badge badge-amber">${esc(m.tactical_category)}</span>` : ""}
+      `;
+
+      const allRows = m.rows || [];
+      const variants = m.available_variants || {};
+      const renders = variants.render_variants || [];
+      const formats = variants.text_formats || [];
+      const modes = variants.action_modes || [];
+
+      const activeRender = renders.includes(state.matrixVariantFilter.render_variant) ? state.matrixVariantFilter.render_variant : (renders[0] || null);
+      const activeFormat = formats.includes(state.matrixVariantFilter.text_format) ? state.matrixVariantFilter.text_format : (formats[0] || null);
+      const activeMode = modes.includes(state.matrixVariantFilter.action_mode) ? state.matrixVariantFilter.action_mode : (modes[0] || null);
+
+      const visibleRows = allRows.filter((r) => {
+        if (renders.length > 1 && activeRender && r.render_variant && r.render_variant !== activeRender) return false;
+        if (formats.length > 1 && activeFormat && r.text_format && r.text_format !== activeFormat) return false;
+        if (modes.length > 1 && activeMode && r.action_mode && r.action_mode !== activeMode) return false;
+        return true;
+      });
+      const rowsToDisplay = visibleRows.length > 0 ? visibleRows : allRows;
+
+      const rowWithFrame = rowsToDisplay.find((r) => r.frame_urls && r.frame_urls.length > 0);
+      const frameUrl = rowWithFrame ? rowWithFrame.frame_urls[0] : (m.frame_urls && m.frame_urls.length > 0 ? m.frame_urls[0] : null);
+      const rowWithText = rowsToDisplay.find((r) => r.state_text);
+      const stateText = rowWithText ? rowWithText.state_text : m.state_text;
+
+      const variantControls = (renders.length > 1 || formats.length > 1 || modes.length > 1)
+        ? `
+          <div class="variant-pills" style="margin-bottom: 12px;">
+            ${renders.length > 1 ? renders.map((rv) => `<button type="button" class="pill-btn ${rv === activeRender ? "active" : ""}" data-mv-render="${esc(rv)}">render: ${esc(rv)}</button>`).join("") : ""}
+            ${formats.length > 1 ? formats.map((tf) => `<button type="button" class="pill-btn ${tf === activeFormat ? "active" : ""}" data-mv-format="${esc(tf)}">text: ${esc(tf)}</button>`).join("") : ""}
+            ${modes.length > 1 ? modes.map((am) => `<button type="button" class="pill-btn ${am === activeMode ? "active" : ""}" data-mv-mode="${esc(am)}">mode: ${esc(am)}</button>`).join("") : ""}
+          </div>
+        `
+        : "";
+
+      const detailEl = document.getElementById("matrix-detail");
+      detailEl.innerHTML = `
+        <div class="inspection-strip">
+          <div class="card-box">
+            <div class="card-label">
+              <span>512×512 Board Frame</span>
+              <span class="mono muted">${frameUrl ? "PNG" : "SVG fallback"}</span>
+            </div>
+            ${frameUrl
+              ? `<img src="${esc(frameUrl)}" alt="Board frame for ${esc(m.episode_id)}" class="board-frame-img" />`
+              : renderFallbackSvgBoard(m.board, m.player_to_move)}
+          </div>
+
+          <div class="card-box">
+            <div class="card-label">
+              <span>Oracle Minimax Values</span>
+              <span class="mono muted">+1 / 0 / -1</span>
+            </div>
+            ${renderOracleGrid(m.board, m.action_values, m.optimal_actions)}
+          </div>
+
+          <div class="card-box">
+            <div class="card-label">
+              <span>Exact state_text Payload</span>
+              <span class="mono muted">history: ${esc((m.move_history || []).join(" → ") || "empty")}</span>
+            </div>
+            <pre class="payload-box">${esc(stateText || "(No text payload in this slice — vision-only condition)")}</pre>
+          </div>
+        </div>
+
+        ${variantControls}
+
+        <div class="matrix-grid">
+          ${rowsToDisplay.map((r) => {
+            const st = statusInfo(r);
+            const tokStr = `${r.input_tokens ?? 0}/${r.output_tokens ?? 0}/${r.thought_tokens ?? 0}`;
+            return `
+              <div class="matrix-card ${st.cls}">
+                <div class="matrix-card-head">
+                  <div>
+                    <div class="row-title">${esc(r.row_id)} <span class="muted">(${esc(r.condition_code)})</span></div>
+                    <div class="row-sub mono">${esc(r.model_id)} · ${esc(r.family)}</div>
+                  </div>
+                  <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
+                </div>
+                <div class="kv-grid">
+                  <div class="kv-item"><span class="k">Requested / Exec</span><span class="v">${esc(r.requested_action ?? "None")} → ${esc(r.executed_action ?? "None")}</span></div>
+                  <div class="kv-item"><span class="k">Confidence</span><span class="v">${r.confidence !== null && r.confidence !== undefined ? fmtNum(r.confidence, 3) : "—"}</span></div>
+                  <div class="kv-item"><span class="k">Latency (Mod / E2E)</span><span class="v">${fmtMs(r.model_latency_ms)} / ${fmtMs(r.end_to_end_latency_ms)}</span></div>
+                  <div class="kv-item"><span class="k">Cost / Tokens (I/O/T)</span><span class="v">${fmtCost(r.api_cost_usd)} · ${tokStr}</span></div>
+                </div>
+                ${renderProbBars(r.action_probabilities, m.optimal_actions, m.legal_actions, r.requested_action)}
+                ${(r.optimal_mass !== null && r.optimal_mass !== undefined)
+                  ? `<div class="mono muted" style="font-size:11px;">optimal_mass=${fmtNum(r.optimal_mass, 3)} · illegal_mass=${fmtNum(r.illegal_mass, 3)}</div>`
+                  : ""}
+                ${r.error_message ? `<div class="mono" style="font-size:11px; color:#fca5a5;">${esc(r.error_message)}</div>` : ""}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+
+      detailEl.querySelectorAll("[data-mv-render]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.matrixVariantFilter.render_variant = btn.dataset.mvRender;
+          renderMatrix();
+        });
+      });
+      detailEl.querySelectorAll("[data-mv-format]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.matrixVariantFilter.text_format = btn.dataset.mvFormat;
+          renderMatrix();
+        });
+      });
+      detailEl.querySelectorAll("[data-mv-mode]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.matrixVariantFilter.action_mode = btn.dataset.mvMode;
+          renderMatrix();
+        });
+      });
+    }
+
+    // Tab 2: Episodes
+    function buildEpisodeQuery() {
+      const params = new URLSearchParams();
+      params.set("limit", "200");
+      const pairs = [
+        ["opponent_type", "ep-opp"],
+        ["row_id", "ep-row"],
+        ["outcome", "ep-outcome"],
+        ["action_mode", "ep-mode"],
+      ];
+      for (const [key, id] of pairs) {
+        const val = document.getElementById(id).value;
+        if (val) params.set(key, val);
+      }
+      return params.toString();
+    }
+
+    async function loadEpisodes() {
+      if (!state.selectedRun) return;
+      const { experiment_id, run_id } = state.selectedRun;
+      const data = await fetchJson(`/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/episodes?${buildEpisodeQuery()}`);
+      state.episodes = data.episodes || [];
+      state.episodesTotal = data.total || 0;
+
+      const facets = data.facets || {};
+      populateSelect(document.getElementById("ep-opp"), facets.opponent_types, "All opponents");
+      populateSelect(document.getElementById("ep-row"), facets.row_ids, "All rows");
+      populateSelect(document.getElementById("ep-outcome"), facets.outcomes, "All outcomes");
+      populateSelect(document.getElementById("ep-mode"), facets.action_modes, "All modes");
+
+      document.getElementById("episodes-count").textContent = `${state.episodesTotal} episodes`;
+      const tbody = document.getElementById("episodes-tbody");
+      if (state.episodes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No T6 episodes in this run (or matching active filters).</td></tr>';
+        document.getElementById("replay-body").innerHTML = '<div class="empty-state">Select a T6 run and episode to inspect turn-by-turn replay.</div>';
+        return;
+      }
+
+      tbody.innerHTML = state.episodes.map((ep, idx) => {
+        const key = `${ep.episode_id}::${ep.row_id}::${ep.action_mode}::${ep.opponent_type}`;
+        const sel = key === state.selectedEpisodeKey ? "selected" : "";
+        return `
+          <tr class="ep-row ${sel}" data-idx="${idx}">
+            <td class="mono">${esc(ep.episode_id)}</td>
+            <td class="mono">${esc(ep.row_id)}</td>
+            <td class="mono">${esc(ep.opponent_type)}</td>
+            <td class="mono">${esc(ep.action_mode)}</td>
+            <td class="mono">${esc(ep.agent_mark)} (${ep.goes_first ? "1st" : "2nd"})</td>
+            <td>${outcomeBadge(ep.outcome)}</td>
+            <td class="mono">${esc(ep.num_plies)}</td>
+            <td class="mono">${esc(ep.illegal_moves ?? 0)}</td>
+            <td class="mono">${fmtCost(ep.total_cost_usd)}</td>
+            <td class="mono">${ep.mean_effective_regret !== null && ep.mean_effective_regret !== undefined ? fmtNum(ep.mean_effective_regret, 3) : "—"}</td>
+          </tr>
+        `;
+      }).join("");
+
+      tbody.querySelectorAll(".ep-row").forEach((tr) => {
+        tr.addEventListener("click", () => {
+          const ep = state.episodes[Number(tr.dataset.idx)];
+          if (ep) selectEpisode(ep);
+        });
+      });
+
+      if (!state.selectedEpisodeKey && state.episodes.length > 0) {
+        selectEpisode(state.episodes[0]);
+      }
+    }
+
+    async function selectEpisode(ep) {
+      state.selectedEpisodeKey = `${ep.episode_id}::${ep.row_id}::${ep.action_mode}::${ep.opponent_type}`;
+      document.querySelectorAll(".ep-row").forEach((tr, idx) => {
+        const item = state.episodes[idx];
+        const key = item ? `${item.episode_id}::${item.row_id}::${item.action_mode}::${item.opponent_type}` : "";
+        tr.classList.toggle("selected", key === state.selectedEpisodeKey);
+      });
+
+      const { experiment_id, run_id } = state.selectedRun;
+      const params = new URLSearchParams();
+      if (ep.row_id) params.set("row_id", ep.row_id);
+      if (ep.action_mode) params.set("action_mode", ep.action_mode);
+      if (ep.opponent_type) params.set("opponent_type", ep.opponent_type);
+
+      const data = await fetchJson(`/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/episodes/${encodeURIComponent(ep.episode_id)}?${params.toString()}`);
+      state.currentReplay = data;
+      state.replayStepIdx = 0;
+      renderReplay();
+    }
+
+    function setReplayStep(nextIdx) {
+      if (!state.currentReplay || !state.currentReplay.decisions) return;
+      const maxIdx = state.currentReplay.decisions.length - 1;
+      if (maxIdx < 0) return;
+      state.replayStepIdx = Math.max(0, Math.min(maxIdx, nextIdx));
+      renderReplay();
+    }
+
+    function renderReplay() {
+      const r = state.currentReplay;
+      if (!r) return;
+      const ep = r.episode || {};
+      const steps = r.decisions || [];
+
+      document.getElementById("replay-title").textContent = `Episode ${r.episode_id} · ${ep.row_id || ""}`;
+      document.getElementById("replay-summary-badges").innerHTML = `
+        ${outcomeBadge(ep.outcome)}
+        <span class="badge badge-slate">vs ${esc(ep.opponent_type || "?")}</span>
+        <span class="badge badge-blue">mark=${esc(ep.agent_mark || "?")} (${ep.goes_first ? "goes first" : "goes second"})</span>
+        <span class="badge badge-slate">term=${esc(ep.termination_reason || "—")}</span>
+        <span class="badge badge-slate">reward=${esc(ep.agent_reward ?? "—")}</span>
+      `;
+
+      const body = document.getElementById("replay-body");
+      if (steps.length === 0) {
+        body.innerHTML = '<div class="empty-state">No turn decisions recorded for this episode.</div>';
+        return;
+      }
+
+      const idx = Math.max(0, Math.min(steps.length - 1, state.replayStepIdx));
+      const step = steps[idx];
+      const st = statusInfo(step);
+      const frameUrl = step.frame_urls && step.frame_urls.length > 0 ? step.frame_urls[0] : null;
+      const isLast = idx === steps.length - 1;
+
+      body.innerHTML = `
+        <div class="scrubber-controls">
+          <button id="sc-first" type="button" ${idx === 0 ? "disabled" : ""}>First</button>
+          <button id="sc-prev" type="button" ${idx === 0 ? "disabled" : ""}>Prev</button>
+          <input id="sc-range" type="range" min="0" max="${steps.length - 1}" value="${idx}" aria-label="Step scrubber" />
+          <button id="sc-next" type="button" ${isLast ? "disabled" : ""}>Next</button>
+          <button id="sc-last" type="button" ${isLast ? "disabled" : ""}>Last</button>
+          <span class="mono">Step ${idx + 1} / ${steps.length}</span>
+          <span class="muted" style="font-size:12px;">(← / →)</span>
+        </div>
+
+        <div class="step-layout">
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div class="card-box">
+              <div class="card-label">
+                <span>Board State at Step ${idx + 1}</span>
+                <span class="mono muted">ply ${esc(step.ply ?? 0)}</span>
+              </div>
+              ${frameUrl
+                ? `<img src="${esc(frameUrl)}" alt="Step ${idx + 1} board frame" class="board-frame-img" />`
+                : renderFallbackSvgBoard(step.board, step.player_to_move)}
+            </div>
+            <div class="card-box">
+              <div class="card-label">
+                <span>Oracle Values</span>
+                <span class="mono muted">v*=${esc(step.state_value ?? "?")}</span>
+              </div>
+              ${renderOracleGrid(step.board, step.action_values, step.optimal_actions)}
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div class="card-box">
+              <div class="card-label">
+                <span>Turn Decision Metadata (${esc(step.row_id)} · ${esc(step.model_id)})</span>
+                <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
+              </div>
+              <div class="kv-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                <div class="kv-item"><span class="k">Step / Ply</span><span class="v">${esc(step.step_idx)} / ${esc(step.ply)}</span></div>
+                <div class="kv-item"><span class="k">Player to Move</span><span class="v">${esc(step.player_to_move || "?")}</span></div>
+                <div class="kv-item"><span class="k">Tactical Category</span><span class="v">${esc(step.tactical_category || "—")}</span></div>
+                <div class="kv-item"><span class="k">Requested Action</span><span class="v">${esc(step.requested_action ?? "None")}</span></div>
+                <div class="kv-item"><span class="k">Executed Action</span><span class="v">${esc(step.executed_action ?? "None")}</span></div>
+                <div class="kv-item"><span class="k">Optimal Actions</span><span class="v">${esc((step.optimal_actions || []).join(", ") || "—")}</span></div>
+                <div class="kv-item"><span class="k">Regret (Legal / Eff)</span><span class="v">${step.legal_regret ?? "—"} / ${step.effective_regret ?? "—"}</span></div>
+                <div class="kv-item"><span class="k">Latency (Mod / E2E)</span><span class="v">${fmtMs(step.model_latency_ms)} / ${fmtMs(step.end_to_end_latency_ms)}</span></div>
+                <div class="kv-item"><span class="k">Cost / Confidence</span><span class="v">${fmtCost(step.api_cost_usd)} · ${step.confidence !== null && step.confidence !== undefined ? fmtNum(step.confidence, 3) : "—"}</span></div>
+              </div>
+              ${isLast && (step.termination_reason || ep.termination_reason)
+                ? `<div style="margin-top:10px;"><span class="badge badge-blue">Final termination: ${esc(step.termination_reason || ep.termination_reason)}</span></div>`
+                : ""}
+            </div>
+
+            <div class="card-box">
+              <div class="card-label">
+                <span>Action Probabilities</span>
+                <span class="mono muted">${step.optimal_mass !== null && step.optimal_mass !== undefined ? `opt_mass=${fmtNum(step.optimal_mass, 3)}` : ""}</span>
+              </div>
+              ${renderProbBars(step.action_probabilities, step.optimal_actions, step.legal_actions, step.requested_action)}
+            </div>
+
+            ${step.state_text ? `
+              <div class="card-box">
+                <div class="card-label"><span>state_text Payload</span></div>
+                <pre class="payload-box">${esc(step.state_text)}</pre>
+              </div>
+            ` : ""}
+          </div>
+        </div>
+      `;
+
+      document.getElementById("sc-first").addEventListener("click", () => setReplayStep(0));
+      document.getElementById("sc-prev").addEventListener("click", () => setReplayStep(idx - 1));
+      document.getElementById("sc-next").addEventListener("click", () => setReplayStep(idx + 1));
+      document.getElementById("sc-last").addEventListener("click", () => setReplayStep(steps.length - 1));
+      document.getElementById("sc-range").addEventListener("input", (e) => setReplayStep(Number(e.target.value)));
+    }
+
+    // Event bindings
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.activeTab = btn.dataset.tab;
+        document.querySelectorAll(".tab-btn").forEach((b) => {
+          const active = b.dataset.tab === state.activeTab;
+          b.classList.toggle("active", active);
+          b.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        document.querySelectorAll(".tab-panel").forEach((p) => {
+          p.classList.toggle("active", p.id === `tab-${state.activeTab}`);
+        });
+      });
+    });
+
+    document.getElementById("run-select").addEventListener("change", (e) => {
+      onRunChanged(Number(e.target.value));
+    });
+    document.getElementById("refresh-runs-btn").addEventListener("click", () => loadRuns());
+
+    ["f-row", "f-cond", "f-tac", "f-fail", "f-render", "f-text", "f-mode"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => {
+        state.decisionsOffset = 0;
+        state.selectedDecisionKey = null;
+        loadDecisions();
+      });
+    });
+
+    document.getElementById("f-reset").addEventListener("click", () => {
+      ["f-row", "f-cond", "f-tac", "f-render", "f-text", "f-mode"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      document.getElementById("f-fail").value = "all";
+      state.decisionsOffset = 0;
+      state.selectedDecisionKey = null;
+      loadDecisions();
+    });
+
+    document.getElementById("dec-prev").addEventListener("click", () => {
+      state.decisionsOffset = Math.max(0, state.decisionsOffset - state.decisionsLimit);
+      loadDecisions();
+    });
+    document.getElementById("dec-next").addEventListener("click", () => {
+      state.decisionsOffset += state.decisionsLimit;
+      loadDecisions();
+    });
+
+    ["ep-opp", "ep-row", "ep-outcome", "ep-mode"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => {
+        state.selectedEpisodeKey = null;
+        loadEpisodes();
+      });
+    });
+
+    document.getElementById("ep-reset").addEventListener("click", () => {
+      ["ep-opp", "ep-row", "ep-outcome", "ep-mode"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      state.selectedEpisodeKey = null;
+      loadEpisodes();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (state.activeTab !== "episodes") return;
+      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+      if (tag === "select" || tag === "input" || tag === "textarea") return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setReplayStep(state.replayStepIdx - 1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setReplayStep(state.replayStepIdx + 1);
+      }
+    });
+
+    loadRuns().catch((err) => {
+      console.error(err);
+      renderEmptyRuns();
+    });
+  </script>
+</body>
+</html>
