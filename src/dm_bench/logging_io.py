@@ -11,7 +11,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable, Literal, Sequence
 
 import yaml
 from pydantic import BaseModel
@@ -22,6 +22,8 @@ from dm_bench.contracts import (
     DecisionResumeKey,
     EpisodeLogRow,
     EpisodeResumeKey,
+    H2HMatchLogRow,
+    H2HResumeKey,
     ImageFrame,
     RunManifest,
 )
@@ -186,6 +188,7 @@ class RunLogger:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.decisions_path = self.run_dir / "decisions.jsonl"
         self.episodes_path = self.run_dir / "episodes.jsonl"
+        self.h2h_matches_path = self.run_dir / "h2h_matches.jsonl"
         self.manifest_path = self.run_dir / "manifest.yaml"
         self._lock = threading.Lock()
         self._manifest = manifest
@@ -237,6 +240,14 @@ class RunLogger:
                 handle.write(line)
                 handle.flush()
 
+    def log_h2h_match(self, row: H2HMatchLogRow) -> None:
+        """Append a single `H2HMatchLogRow` as one JSON line and flush immediately."""
+        line = row.model_dump_json() + "\n"
+        with self._lock:
+            with self.h2h_matches_path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+                handle.flush()
+
     def load_decisions(self) -> list[DecisionLogRow]:
         """Load all logged `DecisionLogRow` entries from `decisions.jsonl`."""
         if not self.decisions_path.is_file():
@@ -265,6 +276,20 @@ class RunLogger:
                     rows.append(EpisodeLogRow.model_validate_json(stripped))
         return rows
 
+    def load_h2h_matches(self) -> list[H2HMatchLogRow]:
+        """Load all logged `H2HMatchLogRow` entries from `h2h_matches.jsonl`."""
+        if not self.h2h_matches_path.is_file():
+            return []
+        rows: list[H2HMatchLogRow] = []
+        with self._lock:
+            with self.h2h_matches_path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    rows.append(H2HMatchLogRow.model_validate_json(stripped))
+        return rows
+
     def load_existing_keys(self) -> set[DecisionResumeKey]:
         """Return set of `(row_id, episode_id, render_variant, text_format, action_mode)` keys."""
         return {row.resume_key() for row in self.load_decisions()}
@@ -272,6 +297,10 @@ class RunLogger:
     def load_existing_episode_keys(self) -> set[EpisodeResumeKey]:
         """Return set of `(row_id, episode_id, opponent_type, action_mode)` keys for T6 resume."""
         return {row.resume_key() for row in self.load_episodes()}
+
+    def load_existing_h2h_keys(self) -> set[H2HResumeKey]:
+        """Return set of `(row_a, row_b, episode_id, action_mode)` keys for H2H resume."""
+        return {row.resume_key() for row in self.load_h2h_matches()}
 
     def finalize(
         self,
@@ -282,6 +311,7 @@ class RunLogger:
         """Recompute summary counts from JSONL logs, update manifest status, and persist."""
         decisions = self.load_decisions()
         episodes = self.load_episodes()
+        h2h_matches = self.load_h2h_matches()
         manifest = self._manifest or self.load_manifest()
         if manifest is None:
             raise ValueError(f"Cannot finalize run without manifest in {self.run_dir}")
@@ -296,6 +326,7 @@ class RunLogger:
         illegal_count = sum(1 for d in decisions if d.response_valid and not d.action_is_legal)
         invalid_count = sum(1 for d in decisions if not d.response_valid)
 
+        dedup_episodes = {e.resume_key(): e for e in episodes}
         updated = manifest.model_copy(
             update={
                 "status": status,
@@ -303,7 +334,7 @@ class RunLogger:
                 "completed_at_utc": now,
                 "total_spent_usd": round(spent, 8),
                 "total_decisions": len(decisions),
-                "total_episodes": len(episodes),
+                "total_episodes": len(dedup_episodes) + len(h2h_matches),
                 "valid_decisions": valid_count,
                 "illegal_decisions": illegal_count,
                 "invalid_decisions": invalid_count,
@@ -312,3 +343,100 @@ class RunLogger:
         )
         self.write_manifest(updated)
         return updated
+
+
+def reconcile_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLogRow]:
+    """Normalize legacy infra-error decisions so rate limits / API errors don't log forfeit regret."""
+    from dm_bench.adapters.retry import infer_error_category, is_infra_error
+
+    out: list[DecisionLogRow] = []
+    for d in decisions:
+        if not d.response_valid and is_infra_error(d.error_type, d.error_message, d.error_category):
+            err_cat = infer_error_category(d.error_type, d.error_message, d.error_category)
+            target_term = "rate_limit" if err_cat == "rate_limit" else "api_error"
+            if (
+                d.error_category != err_cat
+                or d.effective_regret is not None
+                or d.minimax_regret is not None
+                or d.termination_reason in (None, "illegal_forfeit")
+            ):
+                d = d.model_copy(
+                    update={
+                        "error_category": err_cat,
+                        "effective_regret": None,
+                        "minimax_regret": None,
+                        "termination_reason": target_term,
+                    }
+                )
+        out.append(d)
+    return out
+
+
+def reconcile_episodes_with_decisions(
+    episodes: Sequence[EpisodeLogRow],
+    decisions: Sequence[DecisionLogRow],
+) -> list[EpisodeLogRow]:
+    """Reclassify legacy episodes whose `loss_by_illegal_move` was caused by an infra/rate-limit error."""
+    from dm_bench.adapters.retry import infer_error_category, is_infra_error
+
+    by_ep: dict[tuple[str, str, str, str, str | None], list[DecisionLogRow]] = {}
+    for d in decisions:
+        by_ep.setdefault(
+            (d.experiment_id, d.row_id, d.episode_id, d.action_mode, d.opponent_type), []
+        ).append(d)
+
+    out: list[EpisodeLogRow] = []
+    for ep in episodes:
+        if ep.outcome == "aborted_error":
+            if ep.error_category is None and ep.error_type:
+                err_cat = infer_error_category(ep.error_type, ep.error_message, ep.error_category)
+                ep = ep.model_copy(update={"error_category": err_cat})
+            out.append(ep)
+            continue
+
+        if ep.outcome != "loss_by_illegal_move":
+            out.append(ep)
+            continue
+
+        ep_decs = by_ep.get(
+            (ep.experiment_id, ep.row_id, ep.episode_id, ep.action_mode, ep.opponent_type)
+        )
+        if not ep_decs:
+            ep_decs = by_ep.get(
+                (ep.experiment_id, ep.row_id, ep.episode_id, ep.action_mode, None)
+            )
+        if not ep_decs:
+            out.append(ep)
+            continue
+
+        ordered = sorted(ep_decs, key=lambda d: (d.step_idx, d.timestamp_utc))
+        last_dec = ordered[-1]
+        if not last_dec.response_valid and is_infra_error(
+            last_dec.error_type, last_dec.error_message, last_dec.error_category
+        ):
+            err_cat = infer_error_category(
+                last_dec.error_type, last_dec.error_message, last_dec.error_category
+            )
+            valid_regrets = [
+                float(d.effective_regret)
+                for d in ordered
+                if d.response_valid and d.effective_regret is not None
+            ]
+            mean_regret = (sum(valid_regrets) / len(valid_regrets)) if valid_regrets else None
+            valid_turns = sum(1 for d in ordered if d.response_valid)
+            ep = ep.model_copy(
+                update={
+                    "outcome": "aborted_error",
+                    "winner": None,
+                    "termination_reason": "rate_limit" if err_cat == "rate_limit" else "api_error",
+                    "agent_reward": None,
+                    "illegal_moves": 0,
+                    "num_agent_turns": valid_turns,
+                    "mean_effective_regret": mean_regret,
+                    "error_type": last_dec.error_type,
+                    "error_message": last_dec.error_message,
+                    "error_category": err_cat,
+                }
+            )
+        out.append(ep)
+    return out

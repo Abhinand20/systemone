@@ -8,6 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 DecisionResumeKey = tuple[str, str, str | None, str | None, str]
 EpisodeResumeKey = tuple[str, str, str, str]
+H2HResumeKey = tuple[str, str, str, str]
+PlayerH2HOutcome = Literal["win", "loss", "draw", "win_by_forfeit", "loss_by_illegal_move"]
+Modality = Literal["image", "text", "image+text"]
 
 
 class ImageFrame(BaseModel):
@@ -55,6 +58,7 @@ class PolicyResult(BaseModel):
     response_valid: bool = True
     error_type: str | None = None
     error_message: str | None = None
+    error_category: Literal["rate_limit", "api_error", "model_output"] | None = None
     retries: int = 0
     model_latency_ms: float | None = None
     end_to_end_latency_ms: float | None = None
@@ -122,6 +126,7 @@ class DecisionLogRow(BaseModel):
     retries: int = 0
     error_type: str | None = None
     error_message: str | None = None
+    error_category: Literal["rate_limit", "api_error", "model_output"] | None = None
     model_latency_ms: float | None = None
     end_to_end_latency_ms: float | None = None
     input_tokens: int = 0
@@ -131,6 +136,9 @@ class DecisionLogRow(BaseModel):
     api_cost_usd: float = 0.0
 
     opponent_type: str | None = None
+    opponent_row_id: str | None = None
+    opponent_model_key: str | None = None
+    matchup_id: str | None = None
     agent_mark: str | None = None
     goes_first: bool | None = None
     termination_reason: str | None = None
@@ -174,14 +182,17 @@ class EpisodeLogRow(BaseModel):
     agent_mark: Literal["X", "O"]
     starting_player: Literal["X", "O"]
     goes_first: bool
-    outcome: Literal["win", "draw", "loss_by_board", "loss_by_illegal_move"]
+    outcome: Literal["win", "draw", "loss_by_board", "loss_by_illegal_move", "aborted_error"]
     winner: str | None = None
     termination_reason: str
-    agent_reward: float
+    agent_reward: float | None = None
     num_plies: int
     num_agent_turns: int
     illegal_moves: int = 0
     invalid_responses: int = 0
+    error_type: str | None = None
+    error_message: str | None = None
+    error_category: Literal["rate_limit", "api_error", "model_output"] | None = None
     optimal_agent_turns: int = 0
     total_cost_usd: float = 0.0
     total_input_tokens: int = 0
@@ -194,6 +205,82 @@ class EpisodeLogRow(BaseModel):
     def resume_key(self) -> EpisodeResumeKey:
         """Return deterministic checkpoint-resume key for closed-loop episodes."""
         return (self.row_id, self.episode_id, self.opponent_type, self.action_mode)
+
+
+class H2HMatchLogRow(BaseModel):
+    """One symmetric JSONL record per completed head-to-head match in H2H."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    experiment_id: str = "H2H"
+    matchup_id: str
+    episode_id: str
+    game_idx: int
+    action_mode: Literal["all_9", "legal_only"] = "all_9"
+    opening_mode: Literal["standard", "empty"] = "standard"
+    opening_moves: list[str] = Field(default_factory=list)
+
+    row_a: str
+    condition_code_a: str
+    model_key_a: str
+    model_id_a: str
+    modality_a: Modality
+    mark_a: Literal["X", "O"]
+
+    row_b: str
+    condition_code_b: str
+    model_key_b: str
+    model_id_b: str
+    modality_b: Modality
+    mark_b: Literal["X", "O"]
+
+    starting_mark: Literal["X", "O"]
+    a_goes_first: bool
+
+    outcome: Literal["player_a_win", "player_b_win", "draw"]
+    outcome_a: PlayerH2HOutcome
+    outcome_b: PlayerH2HOutcome
+    winner_row_id: str | None = None
+    winner_mark: Literal["X", "O"] | None = None
+    forfeited_by_row_id: str | None = None
+    termination_reason: Literal["win", "draw", "illegal_forfeit"]
+
+    num_plies: int
+    num_model_turns: int
+    turns_a: int = 0
+    turns_b: int = 0
+    optimal_turns_a: int = 0
+    optimal_turns_b: int = 0
+    illegal_moves_a: int = 0
+    illegal_moves_b: int = 0
+    invalid_responses_a: int = 0
+    invalid_responses_b: int = 0
+    mean_effective_regret_a: float = 0.0
+    mean_effective_regret_b: float = 0.0
+
+    input_tokens_a: int = 0
+    output_tokens_a: int = 0
+    thought_tokens_a: int = 0
+    input_tokens_b: int = 0
+    output_tokens_b: int = 0
+    thought_tokens_b: int = 0
+
+    cost_usd_a: float = 0.0
+    cost_usd_b: float = 0.0
+    total_cost_usd: float = 0.0
+
+    latency_ms_a: float = 0.0
+    latency_ms_b: float = 0.0
+    total_latency_ms: float = 0.0
+
+    final_board: str
+    move_history: list[str] = Field(default_factory=list)
+    timestamp_utc: str
+
+    def resume_key(self) -> H2HResumeKey:
+        """Return deterministic checkpoint-resume key for head-to-head matches."""
+        return (self.row_a, self.row_b, self.episode_id, self.action_mode)
 
 
 class RunManifest(BaseModel):

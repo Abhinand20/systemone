@@ -1334,6 +1334,12 @@
         kind: "games",
         desc: "Models play complete Tic-Tac-Toe matches from start to finish against a Random player and an unbeatable Perfect AI.",
       },
+      H2H: {
+        title: "Head-to-Head Model vs Model Arena",
+        short: "H2H Arena",
+        kind: "games",
+        desc: "Models play complete head-to-head Tic-Tac-Toe matches against each other with balanced X/O seats and fair openings.",
+      },
     };
 
     const ROW_META = {
@@ -1403,6 +1409,9 @@
       draw: { label: "Tie Game", cls: "badge-blue" },
       loss_by_board: { label: "Lost (Outplayed)", cls: "badge-amber" },
       loss_by_illegal_move: { label: "Lost (Picked Taken Square)", cls: "badge-rose" },
+      aborted_error: { label: "Aborted (API Error)", cls: "badge-slate" },
+      player_a_win: { label: "Player A Won", cls: "badge-green" },
+      player_b_win: { label: "Player B Won", cls: "badge-amber" },
     };
 
     const TERMINATION_LABELS = {
@@ -1410,6 +1419,8 @@
       draw: "Board full (tie)",
       illegal_forfeit: "Picked an already taken square",
       invalid_response: "Invalid API output",
+      rate_limit: "Rate limit exceeded (excluded from metrics)",
+      api_error: "API / infrastructure error (excluded from metrics)",
     };
 
     const state = {
@@ -1537,7 +1548,21 @@
 
     function fmtOpponent(opp) {
       if (!opp) return "—";
-      return OPPONENT_LABELS[opp] || opp;
+      if (OPPONENT_LABELS[opp]) return OPPONENT_LABELS[opp];
+      const str = String(opp);
+      if (str.startsWith("h2h:")) {
+        const rm = getRowMeta(str.slice(4));
+        return `${rm.model} · ${rm.modality}`;
+      }
+      if (str.includes("_vs_")) {
+        const parts = str.split("_vs_");
+        if (parts.length === 2) {
+          const rmA = getRowMeta(parts[0]);
+          const rmB = getRowMeta(parts[1]);
+          return `${rmA.model} (${rmA.modality}) vs ${rmB.model} (${rmB.modality})`;
+        }
+      }
+      return str;
     }
 
     function fmtSquare(code) {
@@ -2321,8 +2346,11 @@
 
       const lbRows = (s.leaderboard && s.leaderboard.rows) || [];
       const fgRows = (s.full_games && s.full_games.rows) || [];
+      const h2h = s.h2h || {};
+      const h2hMatchups = h2h.matchups || [];
+      const h2hStandings = h2h.standings || [];
 
-      if (lbRows.length === 0 && fgRows.length === 0) {
+      if (lbRows.length === 0 && fgRows.length === 0 && h2hMatchups.length === 0) {
         contentEl.innerHTML = '<div class="empty-state">No decisions or games recorded in the selected scope yet.</div>';
         return;
       }
@@ -2337,11 +2365,42 @@
       const minimaxGames = fgRows.filter((g) => g.opponent_type === "minimax");
       const gamePool = minimaxGames.length > 0 ? minimaxGames : fgRows;
       const bestGame = gamePool.slice().sort((a, b) => (b.non_loss_rate - a.non_loss_rate) || (b.win_rate - a.win_rate) || (a.loss_by_illegal_move_rate - b.loss_by_illegal_move_rate))[0];
+      const topH2H = h2hStandings[0] || null;
       const lowestIllegal = lbRows.slice().sort((a, b) => (a.illegal_rate - b.illegal_rate) || (b.optimal_accuracy - a.optimal_accuracy))[0];
 
       const bestAccRm = bestAcc ? getRowMeta(bestAcc.row_id) : null;
       const cheapestRm = cheapest ? getRowMeta(cheapest.row_id) : null;
       const fastestRm = fastest ? getRowMeta(fastest.row_id) : null;
+
+      const fourthKpiHtml = bestGame ? (() => {
+        const bgRm = getRowMeta(bestGame.row_id);
+        const vsLbl = fmtOpponent(bestGame.opponent_type);
+        return `
+          <div class="kpi-card kpi-amber">
+            <span class="kpi-label">Best vs. ${esc(vsLbl)}</span>
+            <span class="kpi-value">${fmtPct(bestGame.non_loss_rate, 1)}</span>
+            <span class="kpi-who">${esc(bgRm.model)} · ${esc(bgRm.modality)}</span>
+            <span class="kpi-sub">Won or tied ${bestGame.wins + bestGame.draws}/${bestGame.games} games (${esc(fmtMode(bestGame.action_mode))})</span>
+          </div>
+        `;
+      })() : (topH2H ? (() => {
+        const hRm = getRowMeta(topH2H.row_id);
+        return `
+          <div class="kpi-card kpi-amber">
+            <span class="kpi-label">Top H2H Arena Contender</span>
+            <span class="kpi-value">${fmtPct(topH2H.score_rate, 1)}</span>
+            <span class="kpi-who">${esc(hRm.model)} · ${esc(hRm.modality)}</span>
+            <span class="kpi-sub">Won ${topH2H.wins}, tied ${topH2H.draws} of ${topH2H.games} matches</span>
+          </div>
+        `;
+      })() : `
+        <div class="kpi-card kpi-amber">
+          <span class="kpi-label">Lowest Illegal-Pick Rate</span>
+          <span class="kpi-value">${lowestIllegal ? fmtPct(lowestIllegal.illegal_rate, 1) : "—"}</span>
+          <span class="kpi-who">${lowestIllegal ? `${esc(getRowMeta(lowestIllegal.row_id).model)} · ${esc(getRowMeta(lowestIllegal.row_id).modality)}` : "—"}</span>
+          <span class="kpi-sub">${lowestIllegal ? `${lowestIllegal.illegal_count} of ${lowestIllegal.n} moves picked a taken square` : ""}</span>
+        </div>
+      `);
 
       const kpiHtml = `
         <div class="kpi-grid">
@@ -2363,25 +2422,7 @@
             <span class="kpi-who">${fastestRm ? `${esc(fastestRm.model)} · ${esc(fastestRm.modality)}` : "—"}</span>
             <span class="kpi-sub">${fastest ? `95th percentile speed: ${fmtMs(fastest.p95_latency_ms)}` : ""}</span>
           </div>
-          ${bestGame ? (() => {
-            const bgRm = getRowMeta(bestGame.row_id);
-            const vsLbl = fmtOpponent(bestGame.opponent_type);
-            return `
-              <div class="kpi-card kpi-amber">
-                <span class="kpi-label">Best vs. ${esc(vsLbl)}</span>
-                <span class="kpi-value">${fmtPct(bestGame.non_loss_rate, 1)}</span>
-                <span class="kpi-who">${esc(bgRm.model)} · ${esc(bgRm.modality)}</span>
-                <span class="kpi-sub">Won or tied ${bestGame.wins + bestGame.draws}/${bestGame.games} games (${esc(fmtMode(bestGame.action_mode))})</span>
-              </div>
-            `;
-          })() : `
-            <div class="kpi-card kpi-amber">
-              <span class="kpi-label">Lowest Illegal-Pick Rate</span>
-              <span class="kpi-value">${lowestIllegal ? fmtPct(lowestIllegal.illegal_rate, 1) : "—"}</span>
-              <span class="kpi-who">${lowestIllegal ? `${esc(getRowMeta(lowestIllegal.row_id).model)} · ${esc(getRowMeta(lowestIllegal.row_id).modality)}` : "—"}</span>
-              <span class="kpi-sub">${lowestIllegal ? `${lowestIllegal.illegal_count} of ${lowestIllegal.n} moves picked a taken square` : ""}</span>
-            </div>
-          `}
+          ${fourthKpiHtml}
         </div>
       `;
 
@@ -2550,7 +2591,7 @@
                       <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
                       <td>${esc(fmtOpponent(g.opponent_type))}</td>
                       <td>${esc(fmtMode(g.action_mode))}</td>
-                      <td class="mono">${g.games}</td>
+                      <td class="mono">${g.games}${g.aborted_errors ? ` <span class="muted" title="${g.aborted_errors} aborted episode(s) excluded (${g.rate_limit_errors || 0} rate-limit)">(+${g.aborted_errors} err)</span>` : ""}</td>
                       <td>
                         <div class="outcome-stack" title="Won ${w.toFixed(1)}% · Tie ${d.toFixed(1)}% · Outplayed ${lb.toFixed(1)}% · Illegal Forfeit ${li.toFixed(1)}%">
                           <div class="stack-win" style="width:${w.toFixed(1)}%"></div>
@@ -2580,6 +2621,107 @@
         </div>
       ` : "";
 
+      // Head-to-Head Model vs Model Arena
+      const h2hSrcExp = h2h.source_experiment_id || "H2H";
+      const h2hHtml = h2hMatchups.length > 0 ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Head-to-Head Model vs. Model Arena</span>
+            <span class="panel-sub">Green = Player A Win · Blue = Tie · Amber = Player B Win (seat &amp; opening balanced)</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Head-to-head arena matchup scoreboard" class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Player A</th>
+                  <th scope="col">Player B</th>
+                  <th scope="col">Allowed Choices</th>
+                  <th scope="col">Games</th>
+                  <th scope="col">Outcome Split</th>
+                  <th scope="col">W-D-L (A)</th>
+                  <th scope="col">Score A (95% CI)</th>
+                  <th scope="col">Decisive p</th>
+                  <th scope="col">Opt% A / B</th>
+                  <th scope="col">Total Spend</th>
+                  <th scope="col">Replay</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${h2hMatchups.map((m) => {
+                  const rmA = getRowMeta(m.row_a);
+                  const rmB = getRowMeta(m.row_b);
+                  const wA = m.win_rate_a * 100;
+                  const dP = m.draw_rate * 100;
+                  const wB = m.win_rate_b * 100;
+                  return `
+                    <tr>
+                      <td><strong>${esc(rmA.model)}</strong> · <span class="badge ${rmA.modBadgeCls}">${esc(rmA.modality)}</span></td>
+                      <td><strong>${esc(rmB.model)}</strong> · <span class="badge ${rmB.modBadgeCls}">${esc(rmB.modality)}</span></td>
+                      <td>${esc(fmtMode(m.action_mode))}</td>
+                      <td class="mono">${m.games}</td>
+                      <td>
+                        <div class="outcome-stack" title="A Won ${wA.toFixed(1)}% · Tie ${dP.toFixed(1)}% · B Won ${wB.toFixed(1)}%">
+                          <div class="stack-win" style="width:${wA.toFixed(1)}%"></div>
+                          <div class="stack-draw" style="width:${dP.toFixed(1)}%"></div>
+                          <div class="stack-loss-b" style="width:${wB.toFixed(1)}%"></div>
+                        </div>
+                      </td>
+                      <td class="mono">${m.wins_a}-${m.draws}-${m.wins_b}</td>
+                      <td class="mono"><strong>${m.score_a.toFixed(3)}</strong> <span class="muted">[${m.score_a_ci_low.toFixed(2)}, ${m.score_a_ci_high.toFixed(2)}]</span></td>
+                      <td class="mono">${m.p_value_decisive < 0.001 ? m.p_value_decisive.toExponential(1) : m.p_value_decisive.toFixed(4)}</td>
+                      <td class="mono">${fmtPct(m.optimal_rate_a, 1)} / ${fmtPct(m.optimal_rate_b, 1)}</td>
+                      <td class="mono">${fmtCost(m.total_cost_usd)}</td>
+                      <td>
+                        <button type="button" class="mini-btn"
+                          data-drill-h2h-exp="${esc(h2hSrcExp)}"
+                          data-drill-matchup="${esc(m.matchup_id)}"
+                          data-drill-mode="${esc(m.action_mode)}">Replay →</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+          ${h2hStandings.length > 0 ? `
+            <div tabindex="0" role="region" aria-label="Head-to-head overall standings" class="table-wrap" style="border-top:1px solid var(--border);">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Overall Standing · Setup</th>
+                    <th scope="col">Games</th>
+                    <th scope="col">W-D-L</th>
+                    <th scope="col">Points</th>
+                    <th scope="col">Score %</th>
+                    <th scope="col">Opt Move %</th>
+                    <th scope="col">Avg Regret</th>
+                    <th scope="col">Illegal Forfeits</th>
+                    <th scope="col">Spend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${h2hStandings.map((st, idx) => {
+                    const rm = getRowMeta(st.row_id);
+                    return `
+                      <tr>
+                        <td><strong>#${idx + 1} ${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                        <td class="mono">${st.games}</td>
+                        <td class="mono">${st.wins}-${st.draws}-${st.losses}</td>
+                        <td class="mono">${st.points.toFixed(1)}</td>
+                        <td class="mono"><strong>${fmtPct(st.score_rate, 1)}</strong></td>
+                        <td class="mono">${fmtPct(st.optimal_rate, 1)}</td>
+                        <td class="mono">${fmtNum(st.mean_effective_regret, 3)}</td>
+                        <td class="mono">${st.losses_by_illegal_move}</td>
+                        <td class="mono">${fmtCost(st.total_cost_usd)}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          ` : ""}
+        </div>
+      ` : "";
       // Visual Stress Tests (T3)
       const rr = s.rendering_robustness || {};
       const rrVars = rr.variants || [];
@@ -2809,6 +2951,7 @@
         ["Text Only vs. Image Only", pc.modality_text_vs_image || []],
         ["Image + Text vs. Single Input", pc.modality_hybrid_vs_single || []],
         ["Decision Models vs. General LLM/VLM", pc.decision_model_vs_generative || []],
+        ["Decision Model vs. Decision Model", pc.decision_model_vs_decision_model || []],
       ].filter(([, arr]) => arr.length > 0);
 
       const comparisonsHtml = pcGroups.length > 0 ? `
@@ -2868,6 +3011,7 @@
           ${leaderboardHtml}
           ${tacticalHtml}
           ${fullGamesHtml}
+          ${h2hHtml}
           ${renderingHtml}
           ${legalityHtml}
           ${formatsHtml}
@@ -2897,6 +3041,16 @@
             experimentId: btn.dataset.drillGameExp,
             rowId: btn.dataset.drillRow || "",
             opponentType: btn.dataset.drillOpp || "",
+            actionMode: btn.dataset.drillMode || "",
+          });
+        });
+      });
+
+      contentEl.querySelectorAll("[data-drill-h2h-exp]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          drillDownToGames({
+            experimentId: btn.dataset.drillH2hExp,
+            matchupId: btn.dataset.drillMatchup || "",
             actionMode: btn.dataset.drillMode || "",
           });
         });
@@ -2956,6 +3110,7 @@
       experimentId,
       rowId = "",
       opponentType = "",
+      matchupId = "",
       actionMode = "",
     }) {
       const targetIdx = findMatchingRunIndex(experimentId);
@@ -2973,7 +3128,7 @@
       }
 
       document.getElementById("ep-row").value = rowId;
-      document.getElementById("ep-opp").value = opponentType;
+      document.getElementById("ep-opp").value = matchupId || opponentType;
       document.getElementById("ep-mode").value = actionMode;
       document.getElementById("ep-outcome").value = "";
       state.selectedEpisodeKey = null;
@@ -3308,48 +3463,103 @@
       return params.toString();
     }
 
+    function getEpisodeItemKey(ep) {
+      if (!ep) return "";
+      if (ep.row_a && ep.row_b) {
+        return `${ep.episode_id}::${ep.matchup_id || ""}::${ep.action_mode || ""}`;
+      }
+      return `${ep.episode_id}::${ep.row_id || ""}::${ep.action_mode || ""}::${ep.opponent_type || ""}`;
+    }
+
     async function loadEpisodes() {
       if (!state.selectedRun) return;
       const { experiment_id, run_id } = state.selectedRun;
       const data = await fetchJson(`/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/episodes?${buildEpisodeQuery()}`);
       state.episodes = data.episodes || [];
       state.episodesTotal = data.total || 0;
+      const isH2H = Boolean(data.is_h2h);
 
       const facets = data.facets || {};
-      populateSelect(document.getElementById("ep-opp"), facets.opponent_types, "All opponents", fmtOpponent);
+      const oppLabel = document.querySelector('label[for="ep-opp"]');
+      if (oppLabel) oppLabel.textContent = isH2H ? "Matchup" : "Opponent";
+      populateSelect(
+        document.getElementById("ep-opp"),
+        isH2H ? (facets.matchup_ids || facets.opponent_types) : facets.opponent_types,
+        isH2H ? "All matchups" : "All opponents",
+        fmtOpponent,
+      );
       populateSelect(document.getElementById("ep-row"), facets.row_ids, "All setups", fmtRowOption);
       populateSelect(document.getElementById("ep-outcome"), facets.outcomes, "All results", (o) => OUTCOME_META[o]?.label || o);
       populateSelect(document.getElementById("ep-mode"), facets.action_modes, "All choices", fmtMode);
 
-      const wins = state.episodes.filter((e) => e.outcome === "win").length;
-      const draws = state.episodes.filter((e) => e.outcome === "draw").length;
-      const losses = state.episodes.filter((e) => e.outcome === "loss_by_board").length;
-      const illegalLosses = state.episodes.filter((e) => e.outcome === "loss_by_illegal_move").length;
-
       const pillsEl = document.getElementById("episodes-summary-pills");
-      pillsEl.innerHTML = `
-        <span id="episodes-count" class="mono muted">${state.episodesTotal} games</span>
-        ${state.episodes.length > 0 ? `
-          <span class="badge badge-green">Won: ${wins}</span>
-          <span class="badge badge-blue">Tie: ${draws}</span>
-          <span class="badge badge-amber">Lost: ${losses}</span>
-          ${illegalLosses > 0 ? `<span class="badge badge-rose">Forfeits: ${illegalLosses}</span>` : ""}
-        ` : ""}
-      `;
+      if (isH2H) {
+        const aWins = state.episodes.filter((e) => e.outcome === "player_a_win").length;
+        const draws = state.episodes.filter((e) => e.outcome === "draw").length;
+        const bWins = state.episodes.filter((e) => e.outcome === "player_b_win").length;
+        const forfeits = state.episodes.filter((e) => e.termination_reason === "illegal_forfeit").length;
+        pillsEl.innerHTML = `
+          <span id="episodes-count" class="mono muted">${state.episodesTotal} matches</span>
+          ${state.episodes.length > 0 ? `
+            <span class="badge badge-green">Player A Won: ${aWins}</span>
+            <span class="badge badge-blue">Tie: ${draws}</span>
+            <span class="badge badge-amber">Player B Won: ${bWins}</span>
+            ${forfeits > 0 ? `<span class="badge badge-rose">Forfeits: ${forfeits}</span>` : ""}
+          ` : ""}
+        `;
+      } else {
+        const wins = state.episodes.filter((e) => e.outcome === "win").length;
+        const draws = state.episodes.filter((e) => e.outcome === "draw").length;
+        const losses = state.episodes.filter((e) => e.outcome === "loss_by_board").length;
+        const illegalLosses = state.episodes.filter((e) => e.outcome === "loss_by_illegal_move").length;
+        const abortedErrors = state.episodes.filter((e) => e.outcome === "aborted_error").length;
+
+        pillsEl.innerHTML = `
+          <span id="episodes-count" class="mono muted">${state.episodesTotal} games</span>
+          ${state.episodes.length > 0 ? `
+            <span class="badge badge-green">Won: ${wins}</span>
+            <span class="badge badge-blue">Tie: ${draws}</span>
+            <span class="badge badge-amber">Lost: ${losses}</span>
+            ${illegalLosses > 0 ? `<span class="badge badge-rose">Forfeits: ${illegalLosses}</span>` : ""}
+            ${abortedErrors > 0 ? `<span class="badge badge-slate">Aborted (API Err): ${abortedErrors}</span>` : ""}
+          ` : ""}
+        `;
+      }
 
       const tbody = document.getElementById("episodes-tbody");
       if (state.episodes.length === 0) {
         tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No completed games in this run (or matching active filters).</td></tr>';
         document.getElementById("replay-title").textContent = "Game Replay — Move by Move";
         document.getElementById("replay-summary-badges").innerHTML = "";
-        document.getElementById("replay-body").innerHTML = '<div class="empty-state">Select a Full Games run (or clear filters above) to step through a match turn by turn.</div>';
+        document.getElementById("replay-body").innerHTML = '<div class="empty-state">Select a Full Games or H2H Arena run (or clear filters above) to step through a match turn by turn.</div>';
         return;
       }
 
       tbody.innerHTML = state.episodes.map((ep, idx) => {
-        const rm = getRowMeta(ep.row_id);
-        const key = `${ep.episode_id}::${ep.row_id}::${ep.action_mode}::${ep.opponent_type}`;
+        const key = getEpisodeItemKey(ep);
         const sel = key === state.selectedEpisodeKey ? "selected" : "";
+        if (ep.row_a && ep.row_b) {
+          const rmA = getRowMeta(ep.row_a);
+          const rmB = getRowMeta(ep.row_b);
+          const openings = Array.isArray(ep.opening_moves) && ep.opening_moves.length > 0
+            ? `<div class="muted" style="font-size:11px;">Open: ${esc(ep.opening_moves.join(", "))}</div>`
+            : "";
+          return `
+            <tr class="ep-row ${sel}" data-idx="${idx}">
+              <th scope="row" class="mono">${esc(ep.episode_id)}${openings}</th>
+              <td data-label="Player A"><strong>${esc(rmA.model)}</strong> · <span class="muted">${esc(rmA.modality)}</span></td>
+              <td data-label="Player B"><strong>${esc(rmB.model)}</strong> · <span class="muted">${esc(rmB.modality)}</span></td>
+              <td data-label="Allowed Choices">${esc(fmtMode(ep.action_mode))}</td>
+              <td data-label="Plays As">A=${esc(ep.mark_a)} / B=${esc(ep.mark_b)} (${ep.a_goes_first ? "A 1st" : "B 1st"})</td>
+              <td data-label="Result">${outcomeBadge(ep.outcome)}${ep.winner_row_id ? ` <span class="muted" style="font-size:11px;">(${esc(ep.winner_row_id)})</span>` : ""}</td>
+              <td data-label="Total Moves" class="mono">${esc(ep.num_plies)}</td>
+              <td data-label="Illegal Picks" class="mono">${esc(ep.illegal_moves_a ?? 0)} / ${esc(ep.illegal_moves_b ?? 0)}</td>
+              <td data-label="Est. Cost" class="mono">${fmtCost(ep.total_cost_usd)}</td>
+              <td data-label="Avg Mistake Penalty" class="mono">${fmtNum(ep.mean_effective_regret_a, 2)} / ${fmtNum(ep.mean_effective_regret_b, 2)}</td>
+            </tr>
+          `;
+        }
+        const rm = getRowMeta(ep.row_id);
         return `
           <tr class="ep-row ${sel}" data-idx="${idx}">
             <th scope="row" class="mono">${esc(ep.episode_id)}</th>
@@ -3379,18 +3589,22 @@
     }
 
     async function selectEpisode(ep) {
-      state.selectedEpisodeKey = `${ep.episode_id}::${ep.row_id}::${ep.action_mode}::${ep.opponent_type}`;
+      state.selectedEpisodeKey = getEpisodeItemKey(ep);
       document.querySelectorAll(".ep-row").forEach((tr, idx) => {
         const item = state.episodes[idx];
-        const key = item ? `${item.episode_id}::${item.row_id}::${item.action_mode}::${item.opponent_type}` : "";
+        const key = item ? getEpisodeItemKey(item) : "";
         tr.classList.toggle("selected", key === state.selectedEpisodeKey);
       });
 
       const { experiment_id, run_id } = state.selectedRun;
       const params = new URLSearchParams();
-      if (ep.row_id) params.set("row_id", ep.row_id);
+      if (ep.matchup_id) {
+        params.set("matchup_id", ep.matchup_id);
+      } else {
+        if (ep.row_id) params.set("row_id", ep.row_id);
+        if (ep.opponent_type) params.set("opponent_type", ep.opponent_type);
+      }
       if (ep.action_mode) params.set("action_mode", ep.action_mode);
-      if (ep.opponent_type) params.set("opponent_type", ep.opponent_type);
 
       const data = await fetchJson(`/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/episodes/${encodeURIComponent(ep.episode_id)}?${params.toString()}`);
       state.currentReplay = data;
@@ -3411,14 +3625,31 @@
       if (!r) return;
       const ep = r.episode || {};
       const steps = r.decisions || [];
-      const rm = getRowMeta(ep.row_id);
+      const isH2H = Boolean(r.is_h2h || (ep.row_a && ep.row_b));
 
-      document.getElementById("replay-title").textContent = `Game Replay: ${rm.model} (${rm.modality}) vs ${fmtOpponent(ep.opponent_type)}`;
-      document.getElementById("replay-summary-badges").innerHTML = `
-        ${outcomeBadge(ep.outcome)}
-        <span class="badge badge-blue">Playing as ${esc(ep.agent_mark || "?")} (${ep.goes_first ? "Moved 1st" : "Moved 2nd"})</span>
-        <span class="badge badge-slate">Ended by: ${esc(fmtTermination(ep.termination_reason))}</span>
-      `;
+      if (isH2H) {
+        const rmA = getRowMeta(ep.row_a);
+        const rmB = getRowMeta(ep.row_b);
+        const openingTxt = Array.isArray(ep.opening_moves) && ep.opening_moves.length > 0
+          ? `<span class="badge badge-slate">Opening: ${esc(ep.opening_moves.join(" → "))}</span>`
+          : "";
+        document.getElementById("replay-title").textContent =
+          `H2H Replay: ${rmA.model} (${rmA.modality}) vs ${rmB.model} (${rmB.modality})`;
+        document.getElementById("replay-summary-badges").innerHTML = `
+          ${outcomeBadge(ep.outcome)}
+          <span class="badge badge-blue">A=${esc(ep.mark_a || "?")} · B=${esc(ep.mark_b || "?")} (${ep.a_goes_first ? "A Moved 1st" : "B Moved 1st"})</span>
+          ${openingTxt}
+          <span class="badge badge-slate">Ended by: ${esc(fmtTermination(ep.termination_reason))}</span>
+        `;
+      } else {
+        const rm = getRowMeta(ep.row_id);
+        document.getElementById("replay-title").textContent = `Game Replay: ${rm.model} (${rm.modality}) vs ${fmtOpponent(ep.opponent_type)}`;
+        document.getElementById("replay-summary-badges").innerHTML = `
+          ${outcomeBadge(ep.outcome)}
+          <span class="badge badge-blue">Playing as ${esc(ep.agent_mark || "?")} (${ep.goes_first ? "Moved 1st" : "Moved 2nd"})</span>
+          <span class="badge badge-slate">Ended by: ${esc(fmtTermination(ep.termination_reason))}</span>
+        `;
+      }
 
       const body = document.getElementById("replay-body");
       if (steps.length === 0) {
@@ -3430,6 +3661,12 @@
       const step = steps[idx];
       const st = statusInfo(step);
       const stepRm = getRowMeta(step.row_id);
+      const sideBadge = isH2H && step.player_side
+        ? `<span class="badge ${step.player_side === "A" ? "badge-blue" : "badge-violet"}">Player ${esc(step.player_side)} (${esc(step.player_to_move || "?")})</span>`
+        : "";
+      const oppLabel = isH2H && step.opponent_row_id
+        ? `<div class="kv-item"><span class="k">Facing Opponent</span><span class="v">${esc(getRowMeta(step.opponent_row_id).model)} (${esc(step.opponent_row_id)})</span></div>`
+        : "";
       const frameUrl = step.frame_urls && step.frame_urls.length > 0 ? step.frame_urls[0] : null;
       const isLast = idx === steps.length - 1;
 
@@ -3450,7 +3687,8 @@
             const chipTone = s.response_valid
               ? (s.action_is_legal ? (s.action_is_optimal ? "chip-optimal" : "chip-suboptimal") : "chip-illegal")
               : "chip-invalid";
-            return `<button type="button" class="turn-chip ${chipTone} ${sIdx === idx ? "active" : ""}" data-step-jump="${sIdx}" title="${esc(sst.label)}">Turn ${sIdx + 1}: ${esc(s.requested_action || "?")} ${esc(sst.shortIcon)}</button>`;
+            const sideTag = isH2H && s.player_side ? `[${s.player_side}] ` : "";
+            return `<button type="button" class="turn-chip ${chipTone} ${sIdx === idx ? "active" : ""}" data-step-jump="${sIdx}" title="${esc(sst.label)}">${esc(sideTag)}Turn ${sIdx + 1}: ${esc(s.requested_action || "?")} ${esc(sst.shortIcon)}</button>`;
           }).join("")}
         </div>
 
@@ -3477,7 +3715,7 @@
           <div style="display:flex; flex-direction:column; gap:12px;">
             <div class="card-box">
               <div class="card-label">
-                <span>Move Breakdown (${esc(stepRm.model)} · ${esc(stepRm.modality)})</span>
+                <span>Move Breakdown (${esc(stepRm.model)} · ${esc(stepRm.modality)}) ${sideBadge}</span>
                 <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
               </div>
               <div class="kv-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
@@ -3490,6 +3728,7 @@
                 <div class="kv-item"><span class="k">Mistake Penalty</span><span class="v">${step.legal_regret !== null && step.legal_regret !== undefined ? `${step.legal_regret} pt(s)` : "N/A (Illegal/Invalid)"}</span></div>
                 <div class="kv-item"><span class="k">Response Time</span><span class="v">${fmtMs(step.model_latency_ms)}</span></div>
                 <div class="kv-item"><span class="k">Est. Cost · Confidence</span><span class="v">${fmtCost(step.api_cost_usd)} · ${step.confidence !== null && step.confidence !== undefined ? fmtPct(step.confidence, 1) : "N/A"}</span></div>
+                ${oppLabel}
               </div>
               ${isLast && (step.termination_reason || ep.termination_reason)
                 ? `<div style="margin-top:10px;"><span class="badge badge-blue">Game ended here: ${esc(fmtTermination(step.termination_reason || ep.termination_reason))}</span></div>`

@@ -15,14 +15,19 @@ from dm_bench.analysis.stats import (
     TACTICAL_CATEGORY_ORDER,
     TEXT_FORMAT_ORDER,
     DMCalibrationResult,
+    H2HMatchupMetrics,
+    H2HStandingMetrics,
     PairedComparisonResult,
     Track1Metrics,
     Track2Metrics,
     compare_paired_decisions,
     compute_dm_calibration,
+    compute_h2h_metrics,
+    compute_h2h_standings,
     compute_tactical_metrics,
     compute_track1_metrics,
     compute_track2_metrics,
+    is_infra_decision,
     load_runs_data,
     select_core_t2_decisions,
     select_dm_decisions,
@@ -104,6 +109,11 @@ def _compute_hypothesis_comparisons(
             ("Text: Gemini Decision 1 vs Hydrogen (B_gdec_T - F_ghyd_T)", "B_gdec_T", "F_ghyd_T"),
             ("Hybrid: Gemini Decision 1 vs Hydrogen (D_gdec_VT - E_ghyd_VT)", "D_gdec_VT", "E_ghyd_VT"),
         ],
+        "H4_dm_head_to_head": [
+            ("Vision: Jev vs Gemini Decision 1 (A_jev_V - A_gdec_V)", "A_jev_V", "A_gdec_V"),
+            ("Text: Jev vs Gemini Decision 1 (B_jev_T - B_gdec_T)", "B_jev_T", "B_gdec_T"),
+            ("Hybrid: Jev vs Gemini Decision 1 (D_jev_VT - D_gdec_VT)", "D_jev_VT", "D_gdec_VT"),
+        ],
     }
 
     results: dict[str, list[PairedComparisonResult]] = {}
@@ -132,9 +142,11 @@ def _select_representative_failures(
     *,
     limit_per_kind: int = 3,
 ) -> dict[str, list[dict[str, Any]]]:
-    track1 = [d for d in decisions if d.experiment_id not in {"M0_smoke", "T6"}]
+    track1 = [d for d in decisions if d.experiment_id not in {"M0_smoke", "T6", "H2H"}]
 
-    invalid_rows = [d for d in track1 if not d.response_valid][:limit_per_kind]
+    invalid_rows = [
+        d for d in track1 if not d.response_valid and not is_infra_decision(d)
+    ][:limit_per_kind]
     illegal_rows = [
         d for d in track1 if d.response_valid and not d.action_is_legal
     ][:limit_per_kind]
@@ -219,6 +231,7 @@ def _render_markdown_report(
     experiment_ids: Sequence[str],
     decisions_count: int,
     episodes_count: int,
+    h2h_matches_count: int,
     total_spend_usd: float,
     mock_mode: bool,
     core_metrics: Sequence[Track1Metrics],
@@ -227,6 +240,8 @@ def _render_markdown_report(
     t4_metrics: list[dict[str, Any]],
     t5_metrics: Sequence[Track1Metrics],
     track2_metrics: Sequence[Track2Metrics],
+    h2h_matchups: Sequence[H2HMatchupMetrics],
+    h2h_standings: Sequence[H2HStandingMetrics],
     comparisons: dict[str, list[PairedComparisonResult]],
     dm_cal_by_model: dict[str, DMCalibrationResult],
     dm_cal_by_row: dict[str, DMCalibrationResult],
@@ -240,6 +255,7 @@ def _render_markdown_report(
         f"- **Experiments present:** {', '.join(experiment_ids) if experiment_ids else 'None'}",
         f"- **Total decisions loaded:** `{decisions_count}`",
         f"- **Total T6 episodes loaded:** `{episodes_count}`",
+        f"- **Total H2H matches loaded:** `{h2h_matches_count}`",
         f"- **Observed API spend:** `${total_spend_usd:.6f}`" + (" *(mock mode)*" if mock_mode else ""),
         f"- **Run directories:** {', '.join(f'`{p.as_posix()}`' for p in run_dirs)}",
         "",
@@ -262,6 +278,17 @@ def _render_markdown_report(
                 f"{_fmt_float(m.mean_effective_regret)} | {_fmt_float(m.mean_legal_regret)} | "
                 f"{_fmt_ms(m.p50_latency_ms)} | {_fmt_ms(m.p95_latency_ms)} | {_fmt_ms(m.mean_latency_ms)} | "
                 f"{_fmt_usd(m.cost_per_100_decisions_usd)} | {_fmt_per_usd(m.optimal_decisions_per_usd)} |"
+            )
+        infra_notes = [
+            f"`{m.row_id}`: {m.infra_error_count} excluded ({m.rate_limit_error_count} rate-limit)"
+            for m in core_metrics
+            if m.infra_error_count > 0
+        ]
+        if infra_notes:
+            lines.append("")
+            lines.append(
+                "> Excluded infrastructure/API decision errors (not counted in denominators): "
+                + "; ".join(infra_notes)
             )
     else:
         lines.append("*No T2 core matrix decisions found in loaded runs.*")
@@ -359,8 +386,60 @@ def _render_markdown_report(
                 f"{_fmt_pct(m.loss_by_board_rate)} | {_fmt_pct(m.loss_by_illegal_move_rate)} | "
                 f"{_fmt_usd(m.cost_per_episode_usd)} | {_fmt_per_usd(m.non_loss_games_per_usd)} |"
             )
+        aborted_notes = [
+            f"`{m.row_id}` (`{m.action_mode}` vs `{m.opponent_type}`): {m.aborted_errors} aborted ({m.rate_limit_errors} rate-limit)"
+            for m in track2_metrics
+            if m.aborted_errors > 0
+        ]
+        if aborted_notes:
+            lines.append("")
+            lines.append(
+                "> Excluded aborted episodes due to API/rate-limit errors (not counted in Games or forfeits): "
+                + "; ".join(aborted_notes)
+            )
     else:
         lines.append("*T6 closed-loop match episodes not present in loaded runs.*")
+    lines.append("")
+
+    # 6b. Head-to-Head Model-vs-Model Arena (H2H)
+    lines.extend(["## 6b. Head-to-Head Model-vs-Model Arena (H2H)", ""])
+    if h2h_matchups:
+        lines.extend(
+            [
+                "### Matchup Scoreboard",
+                "",
+                "| Matchup (A vs B) | Mode | Games | W-D-L (A) | Score A (95% CI) | p (decisive) | Board Wins A/B | Forfeit Wins A/B | Opt% A / B | Total USD |",
+                "|---|---|---:|---:|---|---:|---:|---:|---:|---:|",
+            ]
+        )
+        for m in h2h_matchups:
+            lines.append(
+                f"| `{m.row_a}` vs `{m.row_b}` | `{m.action_mode}` | {m.games} | "
+                f"{m.wins_a}-{m.draws}-{m.wins_b} | "
+                f"{m.score_a:.3f} [{m.score_a_ci_low:.2f}, {m.score_a_ci_high:.2f}] | "
+                f"{m.p_value_decisive:.4g} | {m.board_wins_a}/{m.board_wins_b} | "
+                f"{m.forfeit_wins_a}/{m.forfeit_wins_b} | "
+                f"{_fmt_pct(m.optimal_rate_a)} / {_fmt_pct(m.optimal_rate_b)} | {_fmt_usd(m.total_cost_usd)} |"
+            )
+        lines.append("")
+        if h2h_standings:
+            lines.extend(
+                [
+                    "### Overall H2H Arena Standings",
+                    "",
+                    "| Row | Model | Modality | Games | W-D-L | Points | Score% | Opt% | Eff Regret | Forfeits Lost | USD |",
+                    "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+                ]
+            )
+            for s in h2h_standings:
+                lines.append(
+                    f"| `{s.row_id}` | `{s.model_key}` | `{s.modality}` | {s.games} | "
+                    f"{s.wins}-{s.draws}-{s.losses} | {s.points:.1f} | {_fmt_pct(s.score_rate)} | "
+                    f"{_fmt_pct(s.optimal_rate)} | {_fmt_float(s.mean_effective_regret)} | "
+                    f"{s.losses_by_illegal_move} | {_fmt_usd(s.total_cost_usd)} |"
+                )
+    else:
+        lines.append("*H2H head-to-head match logs not present in loaded runs.*")
     lines.append("")
 
     # 7. Key Paired Hypothesis Comparisons
@@ -374,6 +453,7 @@ def _render_markdown_report(
         "H1_structured_vs_vision": "### H1 — Structured State vs Vision-Only",
         "H2_hybrid_vs_single": "### H2 — Hybrid (V+T) vs Single-Modality (V or T)",
         "H3_dm_vs_generative": "### H3 — Decision Models vs Generative VLM/LLM (Quality, Latency & Cost)",
+        "H4_dm_head_to_head": "### H4 — Decision Model vs Decision Model (Jev vs Gemini Decision 1)",
     }
     for key, heading in titles.items():
         lines.extend([heading, ""])
@@ -540,6 +620,7 @@ def analyze_runs(
     loaded = load_runs_data(run_dirs)
     decisions = loaded.decisions
     episodes = loaded.episodes
+    h2h_matches = loaded.h2h_matches
 
     all_t1_metrics = compute_track1_metrics(decisions)
     core_decisions = select_core_t2_decisions(decisions)
@@ -618,12 +699,17 @@ def analyze_runs(
     }
 
     failures = _select_representative_failures(decisions, episodes)
+    h2h_matchups = list(
+        compute_h2h_metrics(h2h_matches, n_bootstrap=n_bootstrap, seed=seed).values()
+    )
+    h2h_standings = compute_h2h_standings(h2h_matches)
 
     plot_dir = root / "analysis" / "plots" / tag
     plot_artifacts = generate_all_plots(
         decisions,
         episodes,
         plot_dir,
+        h2h_matches=h2h_matches,
         n_bootstrap=n_bootstrap,
         seed=seed,
     )
@@ -636,13 +722,28 @@ def analyze_runs(
                 generated_plot_paths.append(art.svg_path)
 
     experiment_ids = sorted(
-        {d.experiment_id for d in decisions} | {e.experiment_id for e in episodes}
+        {d.experiment_id for d in decisions}
+        | {e.experiment_id for e in episodes}
+        | {m.experiment_id for m in h2h_matches}
     )
     decision_ep_keys = {(d.experiment_id, d.row_id, d.episode_id) for d in decisions}
-    total_spend_usd = sum(d.api_cost_usd for d in decisions) + sum(
-        e.total_cost_usd
-        for e in episodes
-        if (e.experiment_id, e.row_id, e.episode_id) not in decision_ep_keys
+    h2h_decision_ep_keys = {
+        (d.experiment_id, d.matchup_id or "", d.episode_id)
+        for d in decisions
+        if d.experiment_id == "H2H"
+    }
+    total_spend_usd = (
+        sum(d.api_cost_usd for d in decisions)
+        + sum(
+            e.total_cost_usd
+            for e in episodes
+            if (e.experiment_id, e.row_id, e.episode_id) not in decision_ep_keys
+        )
+        + sum(
+            m.total_cost_usd
+            for m in h2h_matches
+            if (m.experiment_id, m.matchup_id, m.episode_id) not in h2h_decision_ep_keys
+        )
     )
     mock_mode = any(m.mock_mode for m in loaded.manifests)
 
@@ -652,6 +753,7 @@ def analyze_runs(
         experiment_ids=experiment_ids,
         decisions_count=len(decisions),
         episodes_count=len(episodes),
+        h2h_matches_count=len(h2h_matches),
         total_spend_usd=total_spend_usd,
         mock_mode=mock_mode,
         core_metrics=core_metrics,
@@ -660,6 +762,8 @@ def analyze_runs(
         t4_metrics=t4_comparisons,
         t5_metrics=t5_metrics,
         track2_metrics=track2_metrics,
+        h2h_matchups=h2h_matchups,
+        h2h_standings=h2h_standings,
         comparisons=comparisons,
         dm_cal_by_model=dm_cal_by_model,
         dm_cal_by_row=dm_cal_by_row,
@@ -676,6 +780,7 @@ def analyze_runs(
         "experiment_ids": experiment_ids,
         "total_decisions": len(decisions),
         "total_episodes": len(episodes),
+        "total_h2h_matches": len(h2h_matches),
         "total_spend_usd": total_spend_usd,
         "track1_metrics": [m.to_dict() for m in all_t1_metrics.values()],
         "core_t2_metrics": [m.to_dict() for m in core_metrics],
@@ -686,6 +791,8 @@ def analyze_runs(
         "t4_comparisons": t4_comparisons,
         "t5_metrics": [m.to_dict() for m in t5_metrics],
         "track2_metrics": [m.to_dict() for m in track2_metrics],
+        "h2h_matchups": [m.to_dict() for m in h2h_matchups],
+        "h2h_standings": [s.to_dict() for s in h2h_standings],
         "paired_comparisons": {
             key: [c.to_dict() for c in comps] for key, comps in comparisons.items()
         },

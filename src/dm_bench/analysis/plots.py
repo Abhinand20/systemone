@@ -23,8 +23,10 @@ from dm_bench.analysis.stats import (
     TEXT_FORMAT_ORDER,
     bootstrap_ci,
     compute_dm_calibration,
+    compute_h2h_metrics,
     compute_tactical_metrics,
     compute_track2_metrics,
+    filter_evaluated_decisions,
     select_core_t2_decisions,
     select_dm_decisions,
     select_t3_decisions,
@@ -32,7 +34,7 @@ from dm_bench.analysis.stats import (
     select_t5_decisions,
     sort_row_ids,
 )
-from dm_bench.contracts import DecisionLogRow, EpisodeLogRow
+from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, H2HMatchLogRow
 
 CHART_NAMES: tuple[str, ...] = (
     "t2_core_accuracy_illegal",
@@ -205,7 +207,7 @@ def _plot_t1_tactical_heatmap(
     name = "t1_tactical_heatmap"
     core = select_core_t2_decisions(decisions)
     pool = core if core else [
-        d for d in decisions if d.experiment_id not in {"M0_smoke", "T6"}
+        d for d in decisions if d.experiment_id not in {"M0_smoke", "T6", "H2H"}
     ]
     pool = [d for d in pool if d.tactical_category]
     if not pool:
@@ -524,11 +526,11 @@ def _plot_t6_match_outcomes(
     if not episodes:
         return PlotArtifact(name=name, png_path=None, svg_path=None, generated=False, reason="No T6 episodes found")
 
-    t2_metrics = compute_track2_metrics(episodes)
+    t2_metrics = {k: v for k, v in compute_track2_metrics(episodes).items() if v.games > 0}
     modes = [m for m in ("all_9", "legal_only") if any(k[1] == m for k in t2_metrics)]
     opponents = [o for o in ("random", "minimax") if any(k[2] == o for k in t2_metrics)]
     if not modes or not opponents:
-        return PlotArtifact(name=name, png_path=None, svg_path=None, generated=False, reason="No T6 opponent/mode groups")
+        return PlotArtifact(name=name, png_path=None, svg_path=None, generated=False, reason="No completed T6 opponent/mode groups")
 
     n_panels = len(modes)
     n_opps = len(opponents)
@@ -588,7 +590,9 @@ def _plot_latency_cdf(
 ) -> PlotArtifact:
     name = "latency_cdf"
     core = select_core_t2_decisions(decisions)
-    pool = core if core else [d for d in decisions if d.experiment_id != "M0_smoke"]
+    pool = core if core else [
+        d for d in filter_evaluated_decisions(decisions) if d.experiment_id != "M0_smoke"
+    ]
 
     by_row: dict[str, list[float]] = defaultdict(list)
     for row in pool:
@@ -645,7 +649,9 @@ def _plot_pareto_quality_vs_cost(
 ) -> PlotArtifact:
     name = "pareto_quality_vs_cost"
     core = select_core_t2_decisions(decisions)
-    pool = core if core else [d for d in decisions if d.experiment_id != "M0_smoke"]
+    pool = core if core else [
+        d for d in filter_evaluated_decisions(decisions) if d.experiment_id != "M0_smoke"
+    ]
     if not pool:
         return PlotArtifact(name=name, png_path=None, svg_path=None, generated=False, reason="No Track 1 decisions for Pareto plot")
 
@@ -803,24 +809,111 @@ def _plot_dm_calibration_and_abstention(
     return PlotArtifact(name=name, png_path=png_path, svg_path=svg_path, generated=True)
 
 
+def _plot_h2h_match_outcomes(
+    h2h_matches: Sequence[H2HMatchLogRow],
+    output_dir: Path,
+    *,
+    n_bootstrap: int = DEFAULT_BOOTSTRAP_SAMPLES,
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> PlotArtifact:
+    name = "h2h_match_outcomes"
+    if not h2h_matches:
+        return PlotArtifact(
+            name=name,
+            png_path=None,
+            svg_path=None,
+            generated=False,
+            reason="No H2H matches found",
+        )
+
+    metrics = list(
+        compute_h2h_metrics(h2h_matches, n_bootstrap=n_bootstrap, seed=seed).values()
+    )
+    if not metrics:
+        return PlotArtifact(
+            name=name,
+            png_path=None,
+            svg_path=None,
+            generated=False,
+            reason="No H2H matchups aggregated",
+        )
+
+    labels = [f"{m.row_a} vs {m.row_b}\n({m.action_mode})" for m in metrics]
+    win_a_pct = np.array([m.win_rate_a * 100.0 for m in metrics], dtype=np.float64)
+    draw_pct = np.array([m.draw_rate * 100.0 for m in metrics], dtype=np.float64)
+    win_b_pct = np.array([m.win_rate_b * 100.0 for m in metrics], dtype=np.float64)
+
+    y = np.arange(len(metrics))
+    fig, ax = plt.subplots(figsize=(10.5, max(3.6, 1.35 + len(metrics) * 0.72)))
+    try:
+        ax.barh(y, win_a_pct, color="#1D4ED8", label="Player A Win", zorder=3)
+        ax.barh(y, draw_pct, left=win_a_pct, color="#9CA3AF", label="Draw", zorder=3)
+        ax.barh(
+            y,
+            win_b_pct,
+            left=win_a_pct + draw_pct,
+            color="#DC2626",
+            label="Player B Win",
+            zorder=3,
+        )
+
+        ax.axvline(50.0, color="#111827", linestyle=":", linewidth=1.1, zorder=4)
+        for idx, m in enumerate(metrics):
+            ax.text(
+                101.8,
+                y[idx],
+                f"Score A={m.score_a:.3f} [{m.score_a_ci_low:.2f}, {m.score_a_ci_high:.2f}] · p={m.p_value_decisive:.3g} (n={m.games})",
+                va="center",
+                ha="left",
+                fontsize=8.5,
+                color="#1F2937",
+            )
+
+        ax.set_yticks(y)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlim(0.0, 145.0)
+        ax.set_xlabel("Outcome Share (%)")
+        ax.set_title("Head-to-Head Model vs Model Matchup Outcomes")
+        ax.legend(loc="lower right", fontsize=8.5)
+        fig.tight_layout()
+        png_path, svg_path = _save_fig(fig, output_dir, name)
+    finally:
+        plt.close(fig)
+
+    return PlotArtifact(name=name, png_path=png_path, svg_path=svg_path, generated=True)
+
+
 def generate_all_plots(
     decisions: Sequence[DecisionLogRow],
     episodes: Sequence[EpisodeLogRow],
     output_dir: Path,
     *,
+    h2h_matches: Sequence[H2HMatchLogRow] = (),
     n_bootstrap: int = DEFAULT_BOOTSTRAP_SAMPLES,
     seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> list[PlotArtifact]:
-    """Generate all 9 Milestone 1 charts (PNG + SVG), gracefully skipping absent experiments."""
+    """Generate all 9 Milestone 1 charts (PNG + SVG), plus H2H matchup chart when H2H matches exist."""
     _apply_style()
-    return [
-        _plot_t2_core_accuracy_illegal(decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
-        _plot_t1_tactical_heatmap(decisions, output_dir),
-        _plot_t3_rendering_robustness(decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
-        _plot_t4_legality_schema_delta(decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
-        _plot_t5_prompt_formats(decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
+    eval_decisions = filter_evaluated_decisions(decisions)
+    artifacts = [
+        _plot_t2_core_accuracy_illegal(eval_decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
+        _plot_t1_tactical_heatmap(eval_decisions, output_dir),
+        _plot_t3_rendering_robustness(eval_decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
+        _plot_t4_legality_schema_delta(eval_decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
+        _plot_t5_prompt_formats(eval_decisions, output_dir, n_bootstrap=n_bootstrap, seed=seed),
         _plot_t6_match_outcomes(episodes, output_dir),
-        _plot_latency_cdf(decisions, output_dir),
-        _plot_pareto_quality_vs_cost(decisions, output_dir),
-        _plot_dm_calibration_and_abstention(decisions, output_dir),
+        _plot_latency_cdf(eval_decisions, output_dir),
+        _plot_pareto_quality_vs_cost(eval_decisions, output_dir),
+        _plot_dm_calibration_and_abstention(eval_decisions, output_dir),
     ]
+    if h2h_matches:
+        artifacts.append(
+            _plot_h2h_match_outcomes(
+                h2h_matches,
+                output_dir,
+                n_bootstrap=n_bootstrap,
+                seed=seed,
+            )
+        )
+    return artifacts

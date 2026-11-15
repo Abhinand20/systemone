@@ -16,12 +16,20 @@ from dm_bench.adapters import (
     BudgetedPolicyAdapter,
     GeminiDecisionAdapter,
     GeminiGenerativeAdapter,
+    MalformedResponseError,
     MockDecisionAdapter,
     MockGenerativeAdapter,
+    SafetyBlockError,
+    SchemaMismatchError,
     TypeSafeJevAdapter,
     build_row_adapters,
     call_with_retry,
+    classify_error,
     close_adapters,
+    extract_retry_after_seconds,
+    infer_error_category,
+    is_infra_error,
+    is_rate_limit_error,
     is_transient_error,
 )
 from dm_bench.adapters.base import _resolve_optimal_actions
@@ -723,3 +731,114 @@ async def test_run_smoke_mock_and_budget_halt(tmp_path: Path) -> None:
     )
     assert halted_summary["status"] == "halted_budget_cap"
     assert halted_summary["total_decisions"] == 0
+
+
+def test_extract_retry_after_and_classify_error() -> None:
+    class _RateLimitError(Exception):
+        status_code = 429
+
+        def __init__(self, msg: str, headers: dict[str, str] | None = None) -> None:
+            super().__init__(msg)
+            self.response = SimpleNamespace(status_code=429, headers=headers or {})
+
+    class _BadRequestError(Exception):
+        status_code = 400
+
+    rl_msg = _RateLimitError("429 RESOURCE_EXHAUSTED. Please retry in 14.5s.")
+    assert is_rate_limit_error(rl_msg) is True
+    assert extract_retry_after_seconds(rl_msg) == pytest.approx(14.5)
+    assert classify_error(rl_msg) == "rate_limit"
+
+    rl_hdr = _RateLimitError("rate limited", headers={"Retry-After": "9"})
+    assert extract_retry_after_seconds(rl_hdr) == pytest.approx(9.0)
+
+    bad_req = _BadRequestError("INVALID_ARGUMENT")
+    assert is_rate_limit_error(bad_req) is False
+    assert classify_error(bad_req) == "api_error"
+    assert classify_error(MalformedResponseError("bad json")) == "model_output"
+    assert classify_error(SchemaMismatchError("wrong enum")) == "model_output"
+    assert classify_error(SafetyBlockError("blocked")) == "model_output"
+
+    assert infer_error_category("RateLimitError", "429 RESOURCE_EXHAUSTED") == "rate_limit"
+    assert infer_error_category("BadRequestError", "400") == "api_error"
+    assert infer_error_category("SchemaParseError", "bad schema") == "model_output"
+    assert infer_error_category("MalformedOutputError", "bad") == "model_output"
+    assert is_infra_error("RateLimitError", "429") is True
+    assert is_infra_error("BadRequestError", "400") is True
+    assert is_infra_error("MalformedOutputError", "bad") is False
+
+
+async def test_retry_honors_retry_after_and_rate_limit_retries() -> None:
+    class _RateLimit429(Exception):
+        status_code = 429
+
+    attempts = 0
+    sleeps: list[float] = []
+    rl_waits: list[float] = []
+
+    async def _sleep(secs: float) -> None:
+        sleeps.append(secs)
+
+    async def _fn() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise _RateLimit429("Resource exhausted. Please retry in 12s.")
+        return "ok"
+
+    outcome = await call_with_retry(
+        _fn,
+        max_retries=0,
+        rate_limit_max_retries=2,
+        base_delay=1.0,
+        sleep_fn=_sleep,
+        on_rate_limit=rl_waits.append,
+    )
+
+    assert outcome.value == "ok"
+    assert outcome.retries == 2
+    assert attempts == 3
+    assert len(sleeps) == 2
+    assert sleeps[0] >= 12.0
+    assert len(rl_waits) == 2
+
+
+async def test_gemini_decision_single_option_short_circuit() -> None:
+    root = find_repo_root()
+    models = load_all_model_configs(root)
+    gdec_cfg = models["gemini_decision_1"]
+
+    class _FailIfCalledClient:
+        class _Aio:
+            class _Decisions:
+                async def create(self, **kwargs: Any) -> Any:
+                    raise AssertionError("decisions.create should not be called for 1 option")
+
+            decisions = _Decisions()
+
+        aio = _Aio()
+
+    adapter = GeminiDecisionAdapter(
+        gdec_cfg,
+        client=_FailIfCalledClient(),
+        retry_base_delay=0.0,
+    )
+    req = _sample_board_and_request(
+        row_id="A_gdec_V",
+        condition_code="A-DM-V",
+        model_key="gemini_decision_1",
+    ).model_copy(
+        update={
+            "action_mode": "legal_only",
+            "action_criteria": {"R2C2": "Center cell R2C2"},
+            "legal_actions": ["R2C2"],
+        }
+    )
+    res = await adapter.decide(req)
+    assert res.response_valid is True
+    assert res.requested_action == "R2C2"
+    assert res.action_probabilities == {"R2C2": 1.0}
+    assert res.confidence == pytest.approx(1.0)
+    assert res.api_cost_usd == 0.0
+    assert res.model_latency_ms == 0.0
+    await adapter.close()

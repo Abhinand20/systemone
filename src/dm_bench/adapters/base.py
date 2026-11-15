@@ -401,6 +401,7 @@ class MockGenerativeAdapter(GenerativeAdapter):
                 response_valid=False,
                 error_type="MalformedResponseError",
                 error_message="Simulated malformed JSON output on hard visual perturbation",
+                error_category="model_output",
                 retries=0,
                 model_latency_ms=model_lat,
                 end_to_end_latency_ms=e2e_lat,

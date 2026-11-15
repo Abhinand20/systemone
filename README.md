@@ -59,6 +59,24 @@ Outputs land in `experiments/results/`, `analysis/plots/mock-pilot/`, and `analy
    .venv/bin/bench analyze --tag m1-full
    ```
 
+## Head-to-Head Model vs Model Arena (`H2H`)
+
+Pit models directly against each other in seat-balanced (`X`/`O` and first/second mover rotated in 4-game blocks) and opening-balanced Tic-Tac-Toe matches:
+
+```bash
+# Default all modalities (V, T, VT) between TypeSafe Jev and Gemini Decision 1
+.venv/bin/bench h2h --models jev gdec --mock --pilot --name jev-vs-gdec
+
+# Filter modalities, games per matchup, or specific condition rows
+.venv/bin/bench h2h --models jev gdec --modalities V VT --games 20 --max-cost-usd 5.0
+.venv/bin/bench h2h --matchups A_jev_V:A_gdec_V B_jev_T:B_gdec_T --action-modes all_9 legal_only
+
+# Equivalent `bench eval` form, plus analysis and interleaved replay
+.venv/bin/bench eval --exp H2H --models jev gdec --games 20 --mock
+.venv/bin/bench analyze --tag h2h-arena
+.venv/bin/bench view --port 8000
+```
+
 ## Repository Layout
 
 - `experiments/configs/` — Model, game, and 9-row experimental condition configs

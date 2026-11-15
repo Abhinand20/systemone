@@ -11,6 +11,7 @@ from typing import Any, Literal
 from rich.console import Console
 
 from dm_bench.adapters.factory import build_row_adapters, close_adapters
+from dm_bench.adapters.retry import classify_error, infer_error_category, is_infra_error
 from dm_bench.config import (
     BudgetExceededError,
     BudgetTracker,
@@ -237,7 +238,12 @@ async def run_offline_experiment(
             raise FileNotFoundError(f"Resume run directory does not exist: {run_dir}")
         logger = RunLogger(run_dir)
         existing_decisions = logger.load_decisions()
-        existing_keys: set[DecisionResumeKey] = {d.resume_key() for d in existing_decisions}
+        existing_keys: set[DecisionResumeKey] = {
+            d.resume_key()
+            for d in existing_decisions
+            if d.response_valid
+            or not is_infra_error(d.error_type, d.error_message, d.error_category)
+        }
         initial_spent_usd = sum(d.api_cost_usd for d in existing_decisions)
         existing_manifest = logger.load_manifest()
     else:
@@ -427,12 +433,30 @@ async def run_offline_experiment(
                     response_valid=False,
                     error_type=type(exc).__name__,
                     error_message=str(exc),
+                    error_category=classify_error(exc),
                 )
 
         analysis = analyze_position(board, player_to_move)
         candidate_action = result.requested_action if result.response_valid else None
         move_eval = evaluate_move(board, player_to_move, candidate_action)
         executed_action = result.requested_action if (result.response_valid and move_eval.is_legal) else None
+        decision_error_category = (
+            None
+            if result.response_valid
+            else infer_error_category(
+                result.error_type,
+                result.error_message,
+                result.error_category,
+            )
+        )
+        is_infra_failure = bool(
+            not result.response_valid
+            and is_infra_error(
+                result.error_type,
+                result.error_message,
+                decision_error_category,
+            )
+        )
 
         optimal_mass, illegal_mass = _compute_probability_masses(
             result.action_probabilities,
@@ -501,8 +525,8 @@ async def run_offline_experiment(
             action_is_legal=move_eval.is_legal and result.response_valid,
             action_is_optimal=move_eval.is_optimal and result.response_valid,
             legal_regret=move_eval.legal_regret if result.response_valid else None,
-            effective_regret=move_eval.effective_regret,
-            minimax_regret=move_eval.effective_regret,
+            effective_regret=None if is_infra_failure else move_eval.effective_regret,
+            minimax_regret=None if is_infra_failure else move_eval.effective_regret,
             action_probabilities=result.action_probabilities,
             confidence=result.confidence,
             optimal_mass=optimal_mass,
@@ -510,6 +534,7 @@ async def run_offline_experiment(
             retries=result.retries,
             error_type=result.error_type,
             error_message=result.error_message,
+            error_category=decision_error_category,
             model_latency_ms=model_latency,
             end_to_end_latency_ms=e2e_latency,
             input_tokens=result.input_tokens,

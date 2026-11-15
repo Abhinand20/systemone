@@ -22,9 +22,10 @@ from dm_bench.config import (
     load_core_matrix,
 )
 from dm_bench.contracts import PolicyRequest, PolicyResult
-from dm_bench.games.tic_tac_toe.engine import CELL_KEYS, other_mark
-from dm_bench.games.tic_tac_toe.oracle import choose_minimax_action
+from dm_bench.games.tic_tac_toe.engine import CELL_KEYS, new_ttt_state, other_mark, step_ttt
+from dm_bench.games.tic_tac_toe.oracle import analyze_position, choose_minimax_action
 from dm_bench.logging_io import RunLogger, generate_run_id, normalize_run_name, slugify_run_name
+from dm_bench.runners.h2h import build_h2h_schedule, resolve_h2h_matchups, run_h2h_experiment
 from dm_bench.runners.matches import run_matches_experiment
 from dm_bench.runners.offline import run_offline_experiment
 from dm_bench.runners.progress import EvalProgressTracker
@@ -641,7 +642,10 @@ def test_cli_eval_t6_action_modes_and_opponents_filters(tmp_path: Path) -> None:
     assert len(minimax_episodes) == 40
     assert {ep.opponent_type for ep in minimax_episodes} == {"minimax"}
 
-    with pytest.raises(ValueError, match="only supported with --exp T6 or --exp all"):
+    with pytest.raises(
+        ValueError,
+        match="--action-modes is only supported with --exp T6, --exp H2H, or --exp all",
+    ):
         cli.main(
             [
                 "--repo-root",
@@ -653,6 +657,21 @@ def test_cli_eval_t6_action_modes_and_opponents_filters(tmp_path: Path) -> None:
                 "--mock",
                 "--action-modes",
                 "all_9",
+            ]
+        )
+
+    with pytest.raises(ValueError, match="only supported with --exp T6 or --exp all"):
+        cli.main(
+            [
+                "--repo-root",
+                str(tmp_repo),
+                "eval",
+                "--exp",
+                "T1_T2",
+                "--pilot",
+                "--mock",
+                "--opponents",
+                "random",
             ]
         )
 
@@ -840,6 +859,409 @@ async def test_runners_isolate_concurrency_semaphores_per_provider_model(
     )
     releaser_t6 = asyncio.create_task(_release_t6_after_jev())
     await asyncio.gather(t6_task, releaser_t6)
+
+
+async def test_matches_rate_limit_logs_aborted_error_and_resumes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tmp_repo = _make_temp_repo(tmp_path)
+    matrix = load_core_matrix(tmp_repo)
+    models = load_all_model_configs(tmp_repo)
+
+    class _InfraStubAdapter(_StubAdapter):
+        def __init__(
+            self,
+            row_cfg: ConditionRowConfig,
+            model_cfg: ModelConfig,
+            *,
+            rate_limit_episodes: set[str] | None = None,
+            api_error_episodes: set[str] | None = None,
+            invalid_episode_ids: set[str] | None = None,
+        ) -> None:
+            super().__init__(
+                row_cfg,
+                model_cfg,
+                invalid_episode_ids=invalid_episode_ids,
+            )
+            self.rate_limit_episodes = rate_limit_episodes or set()
+            self.api_error_episodes = api_error_episodes or set()
+
+        async def decide(self, request: PolicyRequest) -> PolicyResult:
+            if request.episode_id in self.rate_limit_episodes:
+                self.calls.append(
+                    (
+                        request.row_id,
+                        request.episode_id,
+                        request.render_variant,
+                        request.text_format,
+                        request.action_mode,
+                        request.step_idx,
+                    )
+                )
+                return PolicyResult(
+                    requested_action=None,
+                    response_valid=False,
+                    error_type="RateLimitError",
+                    error_message="429 RESOURCE_EXHAUSTED",
+                    error_category="rate_limit",
+                    model_latency_ms=10.0,
+                    end_to_end_latency_ms=12.0,
+                    model_id=self.model_cfg.model_id,
+                    provider=self.model_cfg.provider,
+                )
+            if request.episode_id in self.api_error_episodes:
+                self.calls.append(
+                    (
+                        request.row_id,
+                        request.episode_id,
+                        request.render_variant,
+                        request.text_format,
+                        request.action_mode,
+                        request.step_idx,
+                    )
+                )
+                return PolicyResult(
+                    requested_action=None,
+                    response_valid=False,
+                    error_type="BadRequestError",
+                    error_message="400 INVALID_ARGUMENT",
+                    error_category="api_error",
+                    model_latency_ms=5.0,
+                    end_to_end_latency_ms=6.0,
+                    model_id=self.model_cfg.model_id,
+                    provider=self.model_cfg.provider,
+                )
+            return await super().decide(request)
+
+    first_phase = True
+    phase2_adapters: list[_InfraStubAdapter] = []
+
+    def _build_phase_stubs(
+        repo_root: Path | None = None,
+        *,
+        mock: bool = False,
+        budget_tracker: BudgetTracker | None = None,
+        row_ids: list[str] | None = None,
+    ) -> dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]]:
+        selected = row_ids if row_ids is not None else ["A_gdec_V"]
+        out: dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]] = {}
+        for rid in selected:
+            rcfg = matrix.get_row(rid)
+            mcfg = models[rcfg.model_key]
+            adapter = _InfraStubAdapter(
+                rcfg,
+                mcfg,
+                rate_limit_episodes={"t6_all_9_random_000"} if first_phase else set(),
+                api_error_episodes={"t6_all_9_random_001"} if first_phase else set(),
+                invalid_episode_ids={"t6_all_9_random_002"},
+            )
+            if not first_phase:
+                phase2_adapters.append(adapter)
+            out[rid] = (rcfg, mcfg, adapter)
+        return out
+
+    monkeypatch.setattr("dm_bench.runners.matches.build_row_adapters", _build_phase_stubs)
+
+    run_dir = await run_matches_experiment(
+        repo_root=tmp_repo,
+        pilot=True,
+        concurrency=1,
+        row_ids=["A_gdec_V"],
+        action_modes=["all_9"],
+        opponents=["random"],
+        show_progress=False,
+    )
+    run_id = run_dir.name
+    logger1 = RunLogger(run_dir)
+    eps1 = {e.episode_id: e for e in logger1.load_episodes()}
+    assert len(eps1) == 20
+    assert eps1["t6_all_9_random_000"].outcome == "aborted_error"
+    assert eps1["t6_all_9_random_000"].termination_reason == "rate_limit"
+    assert eps1["t6_all_9_random_000"].error_category == "rate_limit"
+    assert eps1["t6_all_9_random_000"].illegal_moves == 0
+    assert eps1["t6_all_9_random_000"].agent_reward is None
+
+    assert eps1["t6_all_9_random_001"].outcome == "aborted_error"
+    assert eps1["t6_all_9_random_001"].termination_reason == "api_error"
+    assert eps1["t6_all_9_random_001"].error_category == "api_error"
+    assert eps1["t6_all_9_random_001"].illegal_moves == 0
+
+    # Genuine MalformedOutputError still forfeits cleanly.
+    assert eps1["t6_all_9_random_002"].outcome == "loss_by_illegal_move"
+    assert eps1["t6_all_9_random_002"].termination_reason == "illegal_forfeit"
+    assert eps1["t6_all_9_random_002"].illegal_moves == 1
+
+    # Infra decisions do not carry minimax forfeit regret.
+    decs1 = [
+        d
+        for d in logger1.load_decisions()
+        if d.episode_id in {"t6_all_9_random_000", "t6_all_9_random_001"}
+    ]
+    assert len(decs1) == 2
+    assert all(d.effective_regret is None and d.minimax_regret is None for d in decs1)
+
+    # Resume retries only the 2 aborted_error episodes (not t6_all_9_random_002 or completed episodes).
+    first_phase = False
+    await run_matches_experiment(
+        repo_root=tmp_repo,
+        pilot=True,
+        concurrency=1,
+        row_ids=["A_gdec_V"],
+        action_modes=["all_9"],
+        opponents=["random"],
+        resume_run_id=run_id,
+        show_progress=False,
+    )
+    assert len(phase2_adapters) == 1
+    assert {c[1] for c in phase2_adapters[0].calls} == {
+        "t6_all_9_random_000",
+        "t6_all_9_random_001",
+    }
+    eps2 = {e.episode_id: e for e in logger1.load_episodes()}
+    assert eps2["t6_all_9_random_000"].outcome in {"win", "draw", "loss_by_board"}
+    assert eps2["t6_all_9_random_001"].outcome in {"win", "draw", "loss_by_board"}
+    assert eps2["t6_all_9_random_002"].outcome == "loss_by_illegal_move"
+
+
+def test_h2h_matchup_resolution_and_schedule_balance() -> None:
+    matrix = load_core_matrix()
+    models = load_all_model_configs()
+
+    pairs_models = resolve_h2h_matchups(matrix, models, models=["jev", "gdec"])
+    assert [(a.row_id, b.row_id) for a, b in pairs_models] == [
+        ("A_jev_V", "A_gdec_V"),
+        ("B_jev_T", "B_gdec_T"),
+        ("D_jev_VT", "D_gdec_VT"),
+    ]
+
+    pairs_filtered = resolve_h2h_matchups(
+        matrix,
+        models,
+        matchups=["jev:gdec"],
+        modalities=["V", "VT"],
+    )
+    assert [(a.row_id, b.row_id) for a, b in pairs_filtered] == [
+        ("A_jev_V", "A_gdec_V"),
+        ("D_jev_VT", "D_gdec_VT"),
+    ]
+
+    with pytest.raises(ValueError, match="Self-play"):
+        resolve_h2h_matchups(matrix, models, matchups=["A_jev_V:A_jev_V"])
+
+    schedule = build_h2h_schedule([pairs_filtered[0]], ["all_9"], n_games=8, opening_mode="standard")
+    assert len(schedule) == 8
+    assert sum(1 for s in schedule if s.mark_a == "X") == 4
+    assert sum(1 for s in schedule if s.a_goes_first) == 4
+    for s in schedule:
+        state = new_ttt_state(starting_player=s.starting_mark)
+        for mv in s.opening_moves:
+            state = step_ttt(state, mv).next_state
+        assert analyze_position(state.board, state.player_to_move).state_value == 0
+
+
+@pytest.mark.asyncio
+async def test_h2h_runner_forfeit_budget_and_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tmp_repo = _make_temp_repo(tmp_path)
+    matrix = load_core_matrix(tmp_repo)
+    models = load_all_model_configs(tmp_repo)
+
+    class _H2HStubAdapter(_StubAdapter):
+        def __init__(
+            self,
+            row_cfg: ConditionRowConfig,
+            model_cfg: ModelConfig,
+            *,
+            budget_tracker: BudgetTracker | None = None,
+            cost_per_call: float = 0.05,
+            illegal_episode_ids: set[str] | None = None,
+            rate_limit_episode_ids: set[str] | None = None,
+        ) -> None:
+            super().__init__(
+                row_cfg,
+                model_cfg,
+                budget_tracker=budget_tracker,
+                cost_per_call=cost_per_call,
+                illegal_episode_ids=illegal_episode_ids,
+            )
+            self.rate_limit_episode_ids = rate_limit_episode_ids or set()
+
+        async def decide(self, request: PolicyRequest) -> PolicyResult:
+            if request.episode_id in self.rate_limit_episode_ids:
+                self.calls.append(
+                    (
+                        request.row_id,
+                        request.episode_id,
+                        request.render_variant,
+                        request.text_format,
+                        request.action_mode,
+                        request.step_idx,
+                    )
+                )
+                return PolicyResult(
+                    requested_action=None,
+                    response_valid=False,
+                    error_type="RateLimitError",
+                    error_message="429 RESOURCE_EXHAUSTED",
+                    error_category="rate_limit",
+                    model_latency_ms=5.0,
+                    end_to_end_latency_ms=6.0,
+                    model_id=self.model_cfg.model_id,
+                    provider=self.model_cfg.provider,
+                )
+            return await super().decide(request)
+
+    phase = 1
+
+    def _build_h2h_stubs(
+        repo_root: Path | None = None,
+        *,
+        mock: bool = False,
+        budget_tracker: BudgetTracker | None = None,
+        row_ids: list[str] | None = None,
+    ) -> dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]]:
+        selected = row_ids if row_ids is not None else ["A_jev_V", "A_gdec_V"]
+        out: dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]] = {}
+        for rid in selected:
+            rcfg = matrix.get_row(rid)
+            mcfg = models[rcfg.model_key]
+            illegal_eps = {"h2h_all_9_001"} if rid == "A_jev_V" else set()
+            rl_eps = {"h2h_all_9_002"} if (phase == 1 and rid == "A_jev_V") else set()
+            out[rid] = (
+                rcfg,
+                mcfg,
+                _H2HStubAdapter(
+                    rcfg,
+                    mcfg,
+                    budget_tracker=budget_tracker,
+                    cost_per_call=0.05,
+                    illegal_episode_ids=illegal_eps,
+                    rate_limit_episode_ids=rl_eps,
+                ),
+            )
+        return out
+
+    monkeypatch.setattr("dm_bench.runners.h2h.build_row_adapters", _build_h2h_stubs)
+
+    run_dir1 = await run_h2h_experiment(
+        repo_root=tmp_repo,
+        matchups=["A_jev_V:A_gdec_V"],
+        action_modes=["all_9"],
+        games=4,
+        concurrency=1,
+        max_cost_usd=0.50,
+        run_name="Budget Cap Smoke",
+        show_progress=False,
+    )
+    logger1 = RunLogger(run_dir1)
+    manifest1 = logger1.load_manifest()
+    assert manifest1 is not None
+    assert manifest1.status == "halted_budget_cap"
+    matches1 = logger1.load_h2h_matches()
+    assert 0 < len(matches1) < 4
+    # Rate-limited game h2h_all_9_002 must not log a false illegal forfeit.
+    assert "h2h_all_9_002" not in {m.episode_id for m in matches1}
+
+    # Resume clears rate limit on h2h_all_9_002 and completes all 4 games.
+    phase = 2
+    run_dir2 = await run_h2h_experiment(
+        repo_root=tmp_repo,
+        matchups=["A_jev_V:A_gdec_V"],
+        action_modes=["all_9"],
+        games=4,
+        concurrency=1,
+        max_cost_usd=10.0,
+        resume_run_id=manifest1.run_id,
+        show_progress=False,
+    )
+    assert run_dir2 == run_dir1
+    logger2 = RunLogger(run_dir2)
+    manifest2 = logger2.load_manifest()
+    assert manifest2 is not None
+    assert manifest2.status == "completed"
+    matches2 = logger2.load_h2h_matches()
+    assert len(matches2) == 4
+    assert manifest2.total_episodes == 4
+
+    by_ep = {m.episode_id: m for m in matches2}
+    assert by_ep["h2h_all_9_001"].termination_reason == "illegal_forfeit"
+    assert by_ep["h2h_all_9_001"].outcome_a == "loss_by_illegal_move"
+    assert by_ep["h2h_all_9_001"].outcome_b == "win_by_forfeit"
+    assert by_ep["h2h_all_9_001"].winner_row_id == "A_gdec_V"
+    assert by_ep["h2h_all_9_002"].termination_reason in {"win", "draw"}
+
+    decs2 = logger2.load_decisions()
+    assert decs2
+    assert all(d.matchup_id == "A_jev_V_vs_A_gdec_V" for d in decs2)
+    assert all(d.opponent_row_id in {"A_jev_V", "A_gdec_V"} for d in decs2)
+    assert all(d.experiment_id == "H2H" for d in decs2)
+
+
+def test_h2h_cli_and_eval_commands(tmp_path: Path) -> None:
+    tmp_repo = _make_temp_repo(tmp_path)
+
+    rc_h2h = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "h2h",
+            "--models",
+            "jev",
+            "gdec",
+            "--modalities",
+            "V",
+            "--mock",
+            "--games",
+            "4",
+            "--name",
+            "Jev vs Gdec V",
+        ]
+    )
+    assert rc_h2h == 0
+
+    h2h_dirs = sorted((tmp_repo / "experiments" / "results" / "H2H").iterdir())
+    assert len(h2h_dirs) == 1
+    logger = RunLogger(h2h_dirs[0])
+    matches = logger.load_h2h_matches()
+    assert len(matches) == 4
+    assert all(m.row_a == "A_jev_V" and m.row_b == "A_gdec_V" for m in matches)
+
+    rc_eval_h2h = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "eval",
+            "--exp",
+            "H2H",
+            "--matchups",
+            "jev:gdec",
+            "--modalities",
+            "T",
+            "--mock",
+            "--games",
+            "4",
+        ]
+    )
+    assert rc_eval_h2h == 0
+    assert len(list((tmp_repo / "experiments" / "results" / "H2H").iterdir())) == 2
+
+    with pytest.raises(ValueError, match="only supported with --exp H2H"):
+        cli.main(
+            [
+                "--repo-root",
+                str(tmp_repo),
+                "eval",
+                "--exp",
+                "T1_T2",
+                "--models",
+                "jev",
+                "gdec",
+                "--mock",
+            ]
+        )
 
 
 

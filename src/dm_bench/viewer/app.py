@@ -20,9 +20,12 @@ from dm_bench.analysis.stats import (
     bootstrap_ci,
     compare_paired_decisions,
     compute_dm_calibration,
+    compute_h2h_metrics,
+    compute_h2h_standings,
     compute_tactical_metrics,
     compute_track1_metrics,
     compute_track2_metrics,
+    filter_evaluated_decisions,
     load_runs_data,
     select_core_t2_decisions,
     select_dm_decisions,
@@ -32,10 +35,15 @@ from dm_bench.analysis.stats import (
     sort_row_ids,
 )
 from dm_bench.config import find_repo_root
-from dm_bench.contracts import DecisionLogRow
+from dm_bench.contracts import DecisionLogRow, EpisodeLogRow
 from dm_bench.games.tic_tac_toe.engine import CELL_KEYS, is_terminal
 from dm_bench.games.tic_tac_toe.oracle import analyze_position
-from dm_bench.logging_io import read_jsonl
+from dm_bench.logging_io import (
+    RunLogger,
+    read_jsonl,
+    reconcile_decisions,
+    reconcile_episodes_with_decisions,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -193,8 +201,10 @@ def _discover_runs(root: Path) -> list[dict[str, Any]]:
             entry = dict(raw_manifest)
             entry.setdefault("experiment_id", exp_dir.name)
             entry.setdefault("run_id", run_dir.name)
+            has_h2h = (run_dir / "h2h_matches.jsonl").is_file()
             entry["has_decisions"] = (run_dir / "decisions.jsonl").is_file()
-            entry["has_episodes"] = (run_dir / "episodes.jsonl").is_file()
+            entry["has_h2h_matches"] = has_h2h
+            entry["has_episodes"] = (run_dir / "episodes.jsonl").is_file() or has_h2h
             runs.append(entry)
 
     runs.sort(
@@ -211,10 +221,11 @@ def _summarize_rows_with_ci(
     seed: int,
 ) -> list[dict[str, Any]]:
     """Summarize decisions per `row_id` with bootstrap 95% confidence intervals."""
-    if not decisions:
+    eval_decisions = filter_evaluated_decisions(decisions)
+    if not eval_decisions:
         return []
     by_row: dict[str, list[DecisionLogRow]] = defaultdict(list)
-    for row in decisions:
+    for row in eval_decisions:
         by_row[row.row_id].append(row)
 
     results: list[dict[str, Any]] = []
@@ -262,7 +273,11 @@ def _compute_paired_highlights(
     seed: int,
 ) -> dict[str, list[dict[str, Any]]]:
     """Compute paired statistical comparisons across modalities and model families."""
-    single_step = [r for r in pool if r.step_idx == 0]
+    single_step = [
+        r
+        for r in pool
+        if r.step_idx == 0 and r.experiment_id not in ("T6", "H2H")
+    ]
     if not single_step:
         return {}
 
@@ -291,6 +306,11 @@ def _compute_paired_highlights(
             ("Image Only: Gemini Decision 1 vs Gemini 4 Hydrogen", "A_gdec_V", "C_ghyd_V"),
             ("Text Only: Gemini Decision 1 vs Gemini 4 Hydrogen", "B_gdec_T", "F_ghyd_T"),
             ("Image + Text: Gemini Decision 1 vs Gemini 4 Hydrogen", "D_gdec_VT", "E_ghyd_VT"),
+        ],
+        "decision_model_vs_decision_model": [
+            ("Image Only: TypeSafe Jev vs Gemini Decision 1", "A_jev_V", "A_gdec_V"),
+            ("Text Only: TypeSafe Jev vs Gemini Decision 1", "B_jev_T", "B_gdec_T"),
+            ("Image + Text: TypeSafe Jev vs Gemini Decision 1", "D_jev_VT", "D_gdec_VT"),
         ],
     }
 
@@ -680,19 +700,101 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         run_id: str,
         row_id: str | None = None,
         opponent_type: str | None = None,
+        matchup_id: str | None = None,
         outcome: str | None = None,
         action_mode: str | None = None,
         offset: int = Query(0, ge=0),
         limit: int = Query(100, ge=1, le=1000),
     ) -> dict[str, Any]:
         run_dir = _resolve_run_dir(root, experiment_id, run_id)
-        all_episodes = read_jsonl(run_dir / "episodes.jsonl")
+        run_logger = RunLogger(run_dir)
+        dedup_h2h_map: dict[tuple[str, str, str, str], Any] = {}
+        for m in run_logger.load_h2h_matches():
+            dedup_h2h_map[m.resume_key()] = m
+        all_h2h = [m.model_dump(mode="json") for m in dedup_h2h_map.values()]
+
+        dedup_episodes_map: dict[tuple[str, str, str, str, str], EpisodeLogRow] = {}
+        for ep in run_logger.load_episodes():
+            dedup_episodes_map[ep.resume_key()] = ep
+        dedup_decisions_map: dict[
+            tuple[str, str, str, int, str | None, str | None, str, str | None, str | None],
+            DecisionLogRow,
+        ] = {}
+        for row in run_logger.load_decisions():
+            dkey = (
+                row.experiment_id,
+                row.row_id,
+                row.episode_id,
+                row.step_idx,
+                row.render_variant,
+                row.text_format,
+                row.action_mode,
+                row.matchup_id,
+                row.opponent_type,
+            )
+            dedup_decisions_map[dkey] = row
+        reconciled_decs = reconcile_decisions(dedup_decisions_map.values())
+        reconciled_eps = reconcile_episodes_with_decisions(
+            dedup_episodes_map.values(), reconciled_decs
+        )
+        all_episodes = [ep.model_dump(mode="json") for ep in reconciled_eps]
+
+        is_h2h = bool(all_h2h) and (not all_episodes or experiment_id == "H2H")
+        if is_h2h:
+            matchup_ids = sorted(
+                {str(m["matchup_id"]) for m in all_h2h if m.get("matchup_id")}
+            )
+            facets = {
+                "row_ids": sorted(
+                    {
+                        str(rid)
+                        for m in all_h2h
+                        for rid in (m.get("row_a"), m.get("row_b"))
+                        if rid
+                    },
+                    key=_row_sort_key,
+                ),
+                "matchup_ids": matchup_ids,
+                "opponent_types": matchup_ids,
+                "outcomes": sorted(
+                    {str(m["outcome"]) for m in all_h2h if m.get("outcome")}
+                ),
+                "action_modes": sorted(
+                    {str(m["action_mode"]) for m in all_h2h if m.get("action_mode")}
+                ),
+            }
+            eff_matchup = matchup_id or opponent_type
+            filtered = [
+                m
+                for m in all_h2h
+                if (
+                    row_id is None
+                    or m.get("row_a") == row_id
+                    or m.get("row_b") == row_id
+                )
+                and (eff_matchup is None or m.get("matchup_id") == eff_matchup)
+                and (outcome is None or m.get("outcome") == outcome)
+                and (action_mode is None or m.get("action_mode") == action_mode)
+            ]
+            page = filtered[offset : offset + limit]
+            return {
+                "experiment_id": experiment_id,
+                "run_id": run_id,
+                "is_h2h": True,
+                "total": len(filtered),
+                "total_unfiltered": len(all_h2h),
+                "offset": offset,
+                "limit": limit,
+                "episodes": page,
+                "facets": facets,
+            }
 
         facets = {
             "row_ids": sorted(
                 {str(e["row_id"]) for e in all_episodes if e.get("row_id")},
                 key=_row_sort_key,
             ),
+            "matchup_ids": [],
             "opponent_types": sorted(
                 {str(e["opponent_type"]) for e in all_episodes if e.get("opponent_type")}
             ),
@@ -717,6 +819,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         return {
             "experiment_id": experiment_id,
             "run_id": run_id,
+            "is_h2h": False,
             "total": len(filtered),
             "total_unfiltered": len(all_episodes),
             "offset": offset,
@@ -733,16 +836,134 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         row_id: str | None = None,
         action_mode: str | None = None,
         opponent_type: str | None = None,
+        matchup_id: str | None = None,
     ) -> dict[str, Any]:
         run_dir = _resolve_run_dir(root, experiment_id, run_id)
-        all_episodes = [
-            e for e in read_jsonl(run_dir / "episodes.jsonl") if e.get("episode_id") == episode_id
-        ]
+        run_logger = RunLogger(run_dir)
+        h2h_models_map: dict[tuple[str, str, str, str], Any] = {}
+        for m in run_logger.load_h2h_matches():
+            if m.episode_id == episode_id:
+                h2h_models_map[m.resume_key()] = m
+        all_h2h = [m.model_dump(mode="json") for m in h2h_models_map.values()]
+
+        ep_models_map: dict[tuple[str, str, str, str, str], EpisodeLogRow] = {}
+        for ep in run_logger.load_episodes():
+            if ep.episode_id == episode_id:
+                ep_models_map[ep.resume_key()] = ep
+        dec_models_map: dict[
+            tuple[str, str, str, int, str | None, str | None, str, str | None, str | None],
+            DecisionLogRow,
+        ] = {}
+        for row in run_logger.load_decisions():
+            if row.episode_id == episode_id:
+                dkey = (
+                    row.experiment_id,
+                    row.row_id,
+                    row.episode_id,
+                    row.step_idx,
+                    row.render_variant,
+                    row.text_format,
+                    row.action_mode,
+                    row.matchup_id,
+                    row.opponent_type,
+                )
+                dec_models_map[dkey] = row
+        reconciled_dec_models = reconcile_decisions(dec_models_map.values())
+        reconciled_ep_models = reconcile_episodes_with_decisions(
+            ep_models_map.values(), reconciled_dec_models
+        )
+        all_episodes = [ep.model_dump(mode="json") for ep in reconciled_ep_models]
         all_decisions = [
-            _enrich_decision(d, frames_dir)
-            for d in read_jsonl(run_dir / "decisions.jsonl")
-            if d.get("episode_id") == episode_id
+            _enrich_decision(row.model_dump(mode="json"), frames_dir)
+            for row in reconciled_dec_models
         ]
+
+        is_h2h = bool(all_h2h) and (not all_episodes or experiment_id == "H2H")
+
+        if is_h2h:
+            if not all_h2h and not all_decisions:
+                raise HTTPException(status_code=404, detail=f"Episode {episode_id!r} not found")
+            eff_matchup = matchup_id or opponent_type
+            matched_h2h = [
+                m
+                for m in all_h2h
+                if (
+                    row_id is None
+                    or m.get("row_a") == row_id
+                    or m.get("row_b") == row_id
+                )
+                and (action_mode is None or m.get("action_mode") == action_mode)
+                and (eff_matchup is None or m.get("matchup_id") == eff_matchup)
+            ]
+            if all_h2h and not matched_h2h:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Episode {episode_id!r} not found for specified filters",
+                )
+
+            selected_episode = matched_h2h[0] if matched_h2h else None
+            effective_action_mode = action_mode or (
+                selected_episode.get("action_mode") if selected_episode else None
+            )
+            sel_matchup_id = (
+                selected_episode.get("matchup_id") if selected_episode else eff_matchup
+            )
+            row_a = selected_episode.get("row_a") if selected_episode else None
+            row_b = selected_episode.get("row_b") if selected_episode else None
+
+            trace_raw = []
+            for d in all_decisions:
+                if (
+                    effective_action_mode is not None
+                    and d.get("action_mode") is not None
+                    and d.get("action_mode") != effective_action_mode
+                ):
+                    continue
+                if sel_matchup_id and d.get("matchup_id"):
+                    if d.get("matchup_id") != sel_matchup_id:
+                        continue
+                elif row_a and row_b:
+                    if d.get("row_id") not in {row_a, row_b}:
+                        continue
+                trace_raw.append(d)
+
+            trace_raw.sort(
+                key=lambda d: (
+                    int(d.get("ply") or 0),
+                    int(d.get("step_idx") or 0),
+                    str(d.get("timestamp_utc") or ""),
+                )
+            )
+            trace = [
+                {
+                    **d,
+                    "player_side": (
+                        "A"
+                        if (row_a and d.get("row_id") == row_a)
+                        else ("B" if (row_b and d.get("row_id") == row_b) else None)
+                    ),
+                }
+                for d in trace_raw
+            ]
+            available_rows = sorted(
+                {
+                    str(rid)
+                    for m in all_h2h
+                    for rid in (m.get("row_a"), m.get("row_b"))
+                    if rid
+                }
+                | {str(d["row_id"]) for d in all_decisions if d.get("row_id")},
+                key=_row_sort_key,
+            )
+            return {
+                "experiment_id": experiment_id,
+                "run_id": run_id,
+                "episode_id": episode_id,
+                "is_h2h": True,
+                "episode": selected_episode,
+                "available_rows": available_rows,
+                "decisions": trace,
+            }
 
         if not all_episodes and not all_decisions:
             raise HTTPException(status_code=404, detail=f"Episode {episode_id!r} not found")
@@ -803,6 +1024,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
             "experiment_id": experiment_id,
             "run_id": run_id,
             "episode_id": episode_id,
+            "is_h2h": False,
             "episode": selected_episode,
             "available_rows": available_rows,
             "decisions": trace,
@@ -857,29 +1079,46 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         loaded = load_runs_data(run_dirs)
         decisions = loaded.decisions
         episodes = loaded.episodes
+        h2h_matches = loaded.h2h_matches
 
         decision_ep_keys = {(d.experiment_id, d.row_id, d.episode_id) for d in decisions}
-        total_spend_usd = sum(d.api_cost_usd for d in decisions) + sum(
-            e.total_cost_usd
-            for e in episodes
-            if (e.experiment_id, e.row_id, e.episode_id) not in decision_ep_keys
+        h2h_decision_ep_keys = {
+            (d.experiment_id, d.matchup_id or "", d.episode_id)
+            for d in decisions
+            if d.experiment_id == "H2H"
+        }
+        total_spend_usd = (
+            sum(d.api_cost_usd for d in decisions)
+            + sum(
+                e.total_cost_usd
+                for e in episodes
+                if (e.experiment_id, e.row_id, e.episode_id) not in decision_ep_keys
+            )
+            + sum(
+                m.total_cost_usd
+                for m in h2h_matches
+                if (m.experiment_id, m.matchup_id, m.episode_id) not in h2h_decision_ep_keys
+            )
         )
 
+        eval_decisions = filter_evaluated_decisions(decisions)
         if scope == "suite":
-            core_t2 = select_core_t2_decisions(decisions)
+            core_t2 = select_core_t2_decisions(eval_decisions)
             if core_t2:
                 lb_pool = core_t2
                 source_label = "Core Board Puzzles (Clean Standard · All 9 Squares)"
             else:
-                non_t6 = [d for d in decisions if d.experiment_id != "T6"]
-                lb_pool = non_t6 if non_t6 else list(decisions)
+                non_t6 = [
+                    d for d in eval_decisions if d.experiment_id not in ("T6", "H2H")
+                ]
+                lb_pool = non_t6 if non_t6 else list(eval_decisions)
                 source_label = (
                     "All Puzzle Moves Across Loaded Runs"
                     if non_t6
                     else "All Moves Across Loaded Runs"
                 )
         else:
-            lb_pool = list(decisions)
+            lb_pool = list(eval_decisions)
             source_label = (
                 "Core Board Puzzles (Clean Standard · All 9 Squares)"
                 if experiment_id in {"T1", "T2", "T1_T2", "T1+T2"}
@@ -892,17 +1131,17 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         tactical_breakdown = _compute_tactical_matrix(lb_pool)
 
         if scope == "suite":
-            t3_pool = select_t3_decisions(decisions)
-            t5_pool = select_t5_decisions(decisions)
+            t3_pool = select_t3_decisions(eval_decisions)
+            t5_pool = select_t5_decisions(eval_decisions)
         else:
             t3_pool = (
-                list(decisions)
-                if len({d.render_variant for d in decisions if d.render_variant}) > 1
+                list(eval_decisions)
+                if len({d.render_variant for d in eval_decisions if d.render_variant}) > 1
                 else []
             )
             t5_pool = (
-                list(decisions)
-                if len({d.text_format for d in decisions if d.text_format}) > 1
+                list(eval_decisions)
+                if len({d.text_format for d in eval_decisions if d.text_format}) > 1
                 else []
             )
 
@@ -929,9 +1168,9 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         }
 
         legality_ablation = _compute_legality_ablation(
-            decisions, n_bootstrap=n_bootstrap, seed=DEFAULT_BOOTSTRAP_SEED
+            eval_decisions, n_bootstrap=n_bootstrap, seed=DEFAULT_BOOTSTRAP_SEED
         )
-        calibration = _compute_calibration_payload(decisions, scope=scope)
+        calibration = _compute_calibration_payload(eval_decisions, scope=scope)
         paired_comparisons = _compute_paired_highlights(
             lb_pool, n_bootstrap=n_bootstrap, seed=DEFAULT_BOOTSTRAP_SEED
         )
@@ -939,6 +1178,21 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         full_games = {
             "source_experiment_id": episodes[0].experiment_id if episodes else None,
             "rows": full_games_rows,
+        }
+        h2h_matchups = [
+            m.to_dict()
+            for m in compute_h2h_metrics(
+                h2h_matches,
+                n_bootstrap=n_bootstrap,
+                seed=DEFAULT_BOOTSTRAP_SEED,
+            ).values()
+        ]
+        h2h_standings = [s.to_dict() for s in compute_h2h_standings(h2h_matches)]
+        h2h_payload = {
+            "source_experiment_id": h2h_matches[0].experiment_id if h2h_matches else None,
+            "total_matches": len(h2h_matches),
+            "matchups": h2h_matchups,
+            "standings": h2h_standings,
         }
 
         return {
@@ -960,7 +1214,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
             ],
             "totals": {
                 "total_decisions": len(decisions),
-                "total_episodes": len(episodes),
+                "total_episodes": len(episodes) + len(h2h_matches),
                 "total_spend_usd": total_spend_usd,
             },
             "leaderboard": {
@@ -974,6 +1228,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
             "calibration": calibration,
             "paired_comparisons": paired_comparisons,
             "full_games": full_games,
+            "h2h": h2h_payload,
         }
 
     return app

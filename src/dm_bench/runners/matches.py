@@ -13,6 +13,7 @@ from typing import Any, Literal
 from rich.console import Console
 
 from dm_bench.adapters.factory import build_row_adapters, close_adapters
+from dm_bench.adapters.retry import classify_error, infer_error_category, is_infra_error
 from dm_bench.config import (
     BudgetExceededError,
     BudgetTracker,
@@ -52,6 +53,7 @@ from dm_bench.logging_io import (
     RunLogger,
     generate_run_id,
     normalize_run_name,
+    reconcile_episodes_with_decisions,
     sha256_json,
     utc_now_iso,
 )
@@ -205,7 +207,13 @@ async def run_matches_experiment(
             raise FileNotFoundError(f"Resume run directory does not exist: {run_dir}")
         logger = RunLogger(run_dir)
         existing_decisions = logger.load_decisions()
-        existing_episode_keys: set[EpisodeResumeKey] = logger.load_existing_episode_keys()
+        reconciled_eps = reconcile_episodes_with_decisions(logger.load_episodes(), existing_decisions)
+        ep_by_key: dict[EpisodeResumeKey, EpisodeLogRow] = {
+            ep.resume_key(): ep for ep in reconciled_eps
+        }
+        existing_episode_keys: set[EpisodeResumeKey] = {
+            key for key, ep in ep_by_key.items() if ep.outcome != "aborted_error"
+        }
         initial_spent_usd = sum(d.api_cost_usd for d in existing_decisions)
         existing_manifest = logger.load_manifest()
     else:
@@ -342,10 +350,13 @@ async def run_matches_experiment(
             total_latency_ms = 0.0
             effective_regrets: list[float] = []
 
-            outcome: Literal["win", "draw", "loss_by_board", "loss_by_illegal_move"] | None = None
+            outcome: Literal["win", "draw", "loss_by_board", "loss_by_illegal_move", "aborted_error"] | None = None
             winner: str | None = None
             termination_reason = "unknown"
-            agent_reward = 0.0
+            agent_reward: float | None = 0.0
+            episode_error_type: str | None = None
+            episode_error_message: str | None = None
+            episode_error_category: Literal["rate_limit", "api_error", "model_output"] | None = None
 
             while outcome is None:
                 if state.player_to_move != spec.agent_mark:
@@ -425,6 +436,7 @@ async def run_matches_experiment(
                         response_valid=False,
                         error_type=type(exc).__name__,
                         error_message=str(exc),
+                        error_category=classify_error(exc),
                     )
 
                 analysis = analyze_position(state.board, state.player_to_move)
@@ -432,6 +444,23 @@ async def run_matches_experiment(
                 move_eval = evaluate_move(state.board, state.player_to_move, candidate_action)
                 step_out = step_ttt(state, candidate_action)
 
+                decision_error_category = (
+                    None
+                    if result.response_valid
+                    else infer_error_category(
+                        result.error_type,
+                        result.error_message,
+                        result.error_category,
+                    )
+                )
+                is_infra_failure = bool(
+                    not result.response_valid
+                    and is_infra_error(
+                        result.error_type,
+                        result.error_message,
+                        decision_error_category,
+                    )
+                )
                 is_legal = bool(result.response_valid and step_out.action_is_legal)
                 is_optimal = bool(result.response_valid and move_eval.is_optimal)
                 executed_action = candidate_action if is_legal else None
@@ -502,8 +531,8 @@ async def run_matches_experiment(
                     action_is_legal=is_legal,
                     action_is_optimal=is_optimal,
                     legal_regret=move_eval.legal_regret if result.response_valid else None,
-                    effective_regret=move_eval.effective_regret,
-                    minimax_regret=move_eval.effective_regret,
+                    effective_regret=None if is_infra_failure else move_eval.effective_regret,
+                    minimax_regret=None if is_infra_failure else move_eval.effective_regret,
                     action_probabilities=result.action_probabilities,
                     confidence=result.confidence,
                     optimal_mass=optimal_mass,
@@ -511,6 +540,7 @@ async def run_matches_experiment(
                     retries=result.retries,
                     error_type=result.error_type,
                     error_message=result.error_message,
+                    error_category=decision_error_category,
                     model_latency_ms=model_latency,
                     end_to_end_latency_ms=e2e_latency,
                     input_tokens=result.input_tokens,
@@ -521,7 +551,11 @@ async def run_matches_experiment(
                     opponent_type=spec.opponent_type,
                     agent_mark=spec.agent_mark,
                     goes_first=spec.goes_first,
-                    termination_reason=step_out.termination_reason if step_out.done else None,
+                    termination_reason=(
+                        decision_error_category
+                        if is_infra_failure
+                        else (step_out.termination_reason if step_out.done else None)
+                    ),
                     raw_response=result.raw_response,
                 )
                 logger.log_decision(decision_row)
@@ -535,18 +569,29 @@ async def run_matches_experiment(
                     episode_id=spec.episode_id,
                 )
 
-                num_agent_turns += 1
                 if not result.response_valid:
                     invalid_responses += 1
-                if not is_legal:
-                    illegal_moves += 1
-                if is_optimal:
-                    optimal_agent_turns += 1
                 total_cost_usd += result.api_cost_usd
                 total_input_tokens += result.input_tokens
                 total_output_tokens += result.output_tokens
                 total_thought_tokens += result.thought_tokens
                 total_latency_ms += e2e_latency
+
+                if is_infra_failure:
+                    outcome = "aborted_error"
+                    winner = None
+                    termination_reason = decision_error_category or "api_error"
+                    agent_reward = None
+                    episode_error_type = result.error_type
+                    episode_error_message = result.error_message
+                    episode_error_category = decision_error_category
+                    continue
+
+                num_agent_turns += 1
+                if not is_legal:
+                    illegal_moves += 1
+                if is_optimal:
+                    optimal_agent_turns += 1
                 effective_regrets.append(float(move_eval.effective_regret))
 
                 state = step_out.next_state
@@ -603,6 +648,9 @@ async def run_matches_experiment(
                 total_thought_tokens=total_thought_tokens,
                 total_latency_ms=round(total_latency_ms, 4),
                 mean_effective_regret=mean_regret,
+                error_type=episode_error_type,
+                error_message=episode_error_message,
+                error_category=episode_error_category,
                 timestamp_utc=utc_now_iso(),
             )
             logger.log_episode(episode_row)

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
+import time
 from typing import Any
 
 from google import genai
@@ -17,6 +19,7 @@ from dm_bench.adapters.retry import (
     SafetyBlockError,
     SchemaMismatchError,
     call_with_retry,
+    classify_error,
 )
 from dm_bench.config import ModelConfig
 from dm_bench.contracts import PolicyRequest, PolicyResult
@@ -81,12 +84,19 @@ class GeminiGenerativeAdapter(GenerativeAdapter):
         api_key: str | None = None,
         client: Any | None = None,
         max_retries: int = 3,
+        rate_limit_max_retries: int | None = None,
         retry_base_delay: float = 1.0,
     ) -> None:
         super().__init__(model_config)
         self._closed = False
         self._max_retries = max_retries
+        self._rate_limit_max_retries = (
+            rate_limit_max_retries
+            if rate_limit_max_retries is not None
+            else (max(max_retries, 6) if retry_base_delay > 0 else max_retries)
+        )
         self._retry_base_delay = retry_base_delay
+        self._rate_limit_until = 0.0
         if client is not None:
             self._client = client
         else:
@@ -183,6 +193,15 @@ class GeminiGenerativeAdapter(GenerativeAdapter):
             },
         )
 
+        def _note_rate_limit(wait_seconds: float) -> None:
+            if self._retry_base_delay > 0:
+                self._rate_limit_until = max(self._rate_limit_until, time.monotonic() + wait_seconds)
+
+        if self._retry_base_delay > 0:
+            cooldown_left = self._rate_limit_until - time.monotonic()
+            if cooldown_left > 0:
+                await asyncio.sleep(cooldown_left)
+
         stats = RetryStats()
         response: Any = None
         try:
@@ -196,8 +215,10 @@ class GeminiGenerativeAdapter(GenerativeAdapter):
                     store=False,
                 ),
                 max_retries=self._max_retries,
+                rate_limit_max_retries=self._rate_limit_max_retries,
                 base_delay=self._retry_base_delay,
                 stats=stats,
+                on_rate_limit=_note_rate_limit,
             )
             response = outcome.value
             return self._parse_response(
@@ -217,6 +238,7 @@ class GeminiGenerativeAdapter(GenerativeAdapter):
                 response_valid=False,
                 error_type=type(exc).__name__,
                 error_message=str(exc),
+                error_category=classify_error(exc),
                 retries=stats.retries,
                 model_latency_ms=stats.model_latency_ms,
                 end_to_end_latency_ms=stats.end_to_end_latency_ms,

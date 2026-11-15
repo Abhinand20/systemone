@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, ImageFrame, RunManifest
+from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, H2HMatchLogRow, ImageFrame, RunManifest
 from dm_bench.games.tic_tac_toe.oracle import analyze_position
 from dm_bench.games.tic_tac_toe.renderer import render_ttt_png
 from dm_bench.logging_io import MediaStore, RunLogger
@@ -696,4 +696,288 @@ def test_summary_endpoint_run_and_suite_scopes(tmp_path: Path) -> None:
     assert client.get("/api/runs/T1_T2/does_not_exist/summary").status_code == 404
     assert client.get("/api/runs/T1_T2/..%5Cetc/summary").status_code == 400
     assert client.get("/api/runs/bad..exp/run_001/summary").status_code == 400
+
+
+def test_viewer_h2h_summary_episodes_and_interleaved_replay(tmp_path: Path) -> None:
+    results = tmp_path / "experiments" / "results"
+    h2h_dir = results / "H2H" / "run_h2h_test"
+    h2h_logger = RunLogger(
+        h2h_dir,
+        manifest=RunManifest(
+            experiment_id="H2H",
+            run_id="run_h2h_test",
+            run_name="Jev vs Gdec",
+            created_at_utc="2026-11-15T00:00:00Z",
+            updated_at_utc="2026-11-15T00:00:00Z",
+            rows=["A_jev_V", "A_gdec_V"],
+            action_modes=["all_9"],
+        ),
+    )
+
+    # Seed an H2H match between A_jev_V and A_gdec_V with interleaved turns at ply 0 & ply 1
+    match_row = H2HMatchLogRow(
+        run_id="run_h2h_test",
+        matchup_id="A_jev_V_vs_A_gdec_V",
+        episode_id="h2h_all_9_000",
+        game_idx=0,
+        action_mode="all_9",
+        opening_mode="standard",
+        opening_moves=[],
+        row_a="A_jev_V",
+        condition_code_a="A-DM-V",
+        model_key_a="jev_1_14_0",
+        model_id_a="jev-1.14.0",
+        modality_a="image",
+        mark_a="X",
+        row_b="A_gdec_V",
+        condition_code_b="A-DM-V",
+        model_key_b="gemini_decision_1",
+        model_id_b="gemini-decision-1",
+        modality_b="image",
+        mark_b="O",
+        starting_mark="X",
+        a_goes_first=True,
+        outcome="player_a_win",
+        outcome_a="win",
+        outcome_b="loss",
+        winner_row_id="A_jev_V",
+        winner_mark="X",
+        termination_reason="win",
+        num_plies=2,
+        num_model_turns=2,
+        turns_a=1,
+        turns_b=1,
+        optimal_turns_a=1,
+        optimal_turns_b=0,
+        mean_effective_regret_a=0.0,
+        mean_effective_regret_b=1.0,
+        cost_usd_a=0.001,
+        cost_usd_b=0.002,
+        total_cost_usd=0.003,
+        latency_ms_a=50.0,
+        latency_ms_b=80.0,
+        total_latency_ms=130.0,
+        final_board="X...O....",
+        move_history=["R1C1", "R2C2"],
+        timestamp_utc="2026-11-15T00:00:02Z",
+    )
+    h2h_logger.log_h2h_match(match_row)
+
+    turn_a = _make_decision_row(
+        experiment_id="H2H",
+        run_id="run_h2h_test",
+        row_id="A_jev_V",
+        condition_code="A-DM-V",
+        model_key="jev_1_14_0",
+        model_id="jev-1.14.0",
+        family="decision_model",
+        episode_id="h2h_all_9_000",
+        board=[".", ".", ".", ".", ".", ".", ".", ".", "."],
+        player_to_move="X",
+        requested_action="R1C1",
+        executed_action="R1C1",
+        step_idx=0,
+        ply=0,
+        opponent_type="h2h:A_gdec_V",
+    ).model_copy(
+        update={
+            "matchup_id": "A_jev_V_vs_A_gdec_V",
+            "opponent_row_id": "A_gdec_V",
+            "opponent_model_key": "gemini_decision_1",
+        }
+    )
+    turn_b = _make_decision_row(
+        experiment_id="H2H",
+        run_id="run_h2h_test",
+        row_id="A_gdec_V",
+        condition_code="A-DM-V",
+        model_key="gemini_decision_1",
+        model_id="gemini-decision-1",
+        family="decision_model",
+        episode_id="h2h_all_9_000",
+        board=["X", ".", ".", ".", ".", ".", ".", ".", "."],
+        player_to_move="O",
+        requested_action="R1C2",
+        executed_action="R1C2",
+        action_is_optimal=False,
+        legal_regret=1,
+        effective_regret=1,
+        step_idx=1,
+        ply=1,
+        opponent_type="h2h:A_jev_V",
+        termination_reason="win",
+    ).model_copy(
+        update={
+            "matchup_id": "A_jev_V_vs_A_gdec_V",
+            "opponent_row_id": "A_jev_V",
+            "opponent_model_key": "jev_1_14_0",
+        }
+    )
+    h2h_logger.log_decision(turn_a)
+    h2h_logger.log_decision(turn_b)
+    h2h_logger.finalize(status="completed")
+    manifest = h2h_logger.load_manifest()
+    assert manifest is not None
+    assert manifest.run_name == "Jev vs Gdec"
+
+    client = TestClient(create_app(repo_root=tmp_path))
+
+    runs_data = client.get("/api/runs").json()["runs"]
+    assert len(runs_data) == 1
+    assert runs_data[0]["experiment_id"] == "H2H"
+    assert runs_data[0]["has_h2h_matches"] is True
+    assert runs_data[0]["has_episodes"] is True
+    assert runs_data[0]["run_name"] == "Jev vs Gdec"
+
+    sum_res = client.get("/api/runs/H2H/run_h2h_test/summary?scope=suite&n_bootstrap=200")
+    assert sum_res.status_code == 200
+    sdata = sum_res.json()
+    assert sdata["totals"]["total_episodes"] == 1
+    assert sdata["h2h"]["total_matches"] == 1
+    assert len(sdata["h2h"]["matchups"]) == 1
+    assert sdata["h2h"]["matchups"][0]["wins_a"] == 1
+    assert [s["row_id"] for s in sdata["h2h"]["standings"]] == ["A_jev_V", "A_gdec_V"]
+
+    eps_res = client.get("/api/runs/H2H/run_h2h_test/episodes?row_id=A_gdec_V")
+    assert eps_res.status_code == 200
+    ep_payload = eps_res.json()
+    assert ep_payload["is_h2h"] is True
+    assert ep_payload["total"] == 1
+    assert ep_payload["facets"]["matchup_ids"] == ["A_jev_V_vs_A_gdec_V"]
+
+    replay_res = client.get(
+        "/api/runs/H2H/run_h2h_test/episodes/h2h_all_9_000?matchup_id=A_jev_V_vs_A_gdec_V&action_mode=all_9"
+    )
+    assert replay_res.status_code == 200
+    replay = replay_res.json()
+    assert replay["is_h2h"] is True
+    assert replay["available_rows"] == ["A_jev_V", "A_gdec_V"]
+    assert [(d["row_id"], d["player_side"], d["ply"]) for d in replay["decisions"]] == [
+        ("A_jev_V", "A", 0),
+        ("A_gdec_V", "B", 1),
+    ]
+
+
+def test_viewer_reconciles_legacy_rate_limit_episodes_and_labels(tmp_path: Path) -> None:
+    t6_dir = tmp_path / "experiments" / "results" / "T6" / "run_legacy_rl"
+    t6_logger = RunLogger(
+        t6_dir,
+        manifest=RunManifest(
+            experiment_id="T6",
+            run_id="run_legacy_rl",
+            status="completed",
+            created_at_utc="2026-11-15T01:00:00Z",
+            updated_at_utc="2026-11-15T01:05:00Z",
+            rows=["A_gdec_V"],
+            total_decisions=2,
+            total_episodes=2,
+        ),
+    )
+    t6_logger.log_episode(
+        EpisodeLogRow(
+            experiment_id="T6",
+            run_id="run_legacy_rl",
+            episode_id="ep_win",
+            row_id="A_gdec_V",
+            condition_code="A-DM-V",
+            model_key="gemini_decision_1",
+            model_id="gemini-decision-1",
+            family="decision_model",
+            action_mode="legal_only",
+            opponent_type="random",
+            episode_seed=1,
+            agent_mark="X",
+            starting_player="X",
+            goes_first=True,
+            outcome="win",
+            winner="X",
+            termination_reason="win",
+            agent_reward=1.0,
+            num_plies=5,
+            num_agent_turns=3,
+            timestamp_utc="2026-11-15T01:01:00Z",
+        )
+    )
+    # Legacy polluted RateLimitError episode stored as loss_by_illegal_move
+    t6_logger.log_episode(
+        EpisodeLogRow(
+            experiment_id="T6",
+            run_id="run_legacy_rl",
+            episode_id="ep_rl",
+            row_id="A_gdec_V",
+            condition_code="A-DM-V",
+            model_key="gemini_decision_1",
+            model_id="gemini-decision-1",
+            family="decision_model",
+            action_mode="legal_only",
+            opponent_type="random",
+            episode_seed=2,
+            agent_mark="O",
+            starting_player="X",
+            goes_first=False,
+            outcome="loss_by_illegal_move",
+            winner="X",
+            termination_reason="illegal_forfeit",
+            agent_reward=-1.0,
+            num_plies=1,
+            num_agent_turns=1,
+            illegal_moves=1,
+            invalid_responses=1,
+            timestamp_utc="2026-11-15T01:02:00Z",
+        )
+    )
+    t6_logger.log_decision(
+        _make_decision_row(
+            experiment_id="T6",
+            run_id="run_legacy_rl",
+            row_id="A_gdec_V",
+            condition_code="A-DM-V",
+            model_key="gemini_decision_1",
+            model_id="gemini-decision-1",
+            family="decision_model",
+            episode_id="ep_rl",
+            board=["X", ".", ".", ".", ".", ".", ".", ".", "."],
+            player_to_move="O",
+            requested_action=None,
+            executed_action=None,
+            response_valid=False,
+            action_is_legal=False,
+            action_is_optimal=False,
+            legal_regret=None,
+            effective_regret=2,
+            action_mode="legal_only",
+            opponent_type="random",
+            error_type="RateLimitError",
+            termination_reason=None,
+        ).model_copy(update={"error_message": "429 RESOURCE_EXHAUSTED"})
+    )
+
+    app = create_app(repo_root=tmp_path)
+    client = TestClient(app)
+
+    eps_body = client.get("/api/runs/T6/run_legacy_rl/episodes").json()
+    assert eps_body["total"] == 2
+    by_id = {e["episode_id"]: e for e in eps_body["episodes"]}
+    assert by_id["ep_rl"]["outcome"] == "aborted_error"
+    assert by_id["ep_rl"]["termination_reason"] == "rate_limit"
+    assert by_id["ep_rl"]["illegal_moves"] == 0
+    assert by_id["ep_rl"]["agent_reward"] is None
+
+    replay_body = client.get("/api/runs/T6/run_legacy_rl/episodes/ep_rl").json()
+    assert replay_body["episode"]["outcome"] == "aborted_error"
+    assert replay_body["decisions"][0]["error_category"] == "rate_limit"
+    assert replay_body["decisions"][0]["effective_regret"] is None
+
+    summary_body = client.get("/api/runs/T6/run_legacy_rl/summary?scope=run&n_bootstrap=200").json()
+    fg_row = summary_body["full_games"]["rows"][0]
+    assert fg_row["games"] == 1
+    assert fg_row["wins"] == 1
+    assert fg_row["losses_by_illegal_move"] == 0
+    assert fg_row["aborted_errors"] == 1
+    assert fg_row["rate_limit_errors"] == 1
+    assert fg_row["win_rate"] == 1.0
+
+    html = client.get("/").text
+    assert "aborted_error" in html
+    assert "Aborted (API Error)" in html
 

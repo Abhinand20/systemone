@@ -11,8 +11,9 @@ from typing import Any
 
 import numpy as np
 
-from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, RunManifest
-from dm_bench.logging_io import RunLogger
+from dm_bench.adapters.retry import infer_error_category, is_infra_error
+from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, H2HMatchLogRow, RunManifest
+from dm_bench.logging_io import RunLogger, reconcile_decisions, reconcile_episodes_with_decisions
 
 DEFAULT_BOOTSTRAP_SAMPLES: int = 10_000
 DEFAULT_BOOTSTRAP_SEED: int = 20261114
@@ -62,24 +63,23 @@ def sort_row_ids(row_ids: Sequence[str]) -> list[str]:
 
 @dataclass(frozen=True, slots=True)
 class LoadedRunsData:
-    """Container for deduplicated decision logs, episode logs, and run manifests."""
+    """Container for deduplicated decision logs, episode logs, H2H matches, and run manifests."""
 
     run_dirs: tuple[Path, ...]
     decisions: tuple[DecisionLogRow, ...]
     episodes: tuple[EpisodeLogRow, ...]
     manifests: tuple[RunManifest, ...]
+    h2h_matches: tuple[H2HMatchLogRow, ...] = ()
 
 
 def _resolve_run_dirs(run_dirs: Sequence[Path | str]) -> list[Path]:
     """Expand experiment parent folders to child run directories when needed."""
     resolved: list[Path] = []
     seen: set[Path] = set()
+    run_marker_files = ("decisions.jsonl", "episodes.jsonl", "h2h_matches.jsonl", "manifest.yaml")
     for raw in run_dirs:
         path = Path(raw)
-        has_run_files = any(
-            (path / name).is_file()
-            for name in ("decisions.jsonl", "episodes.jsonl", "manifest.yaml")
-        )
+        has_run_files = any((path / name).is_file() for name in run_marker_files)
         if has_run_files or not path.is_dir():
             norm = path.resolve()
             if norm not in seen:
@@ -90,11 +90,7 @@ def _resolve_run_dirs(run_dirs: Sequence[Path | str]) -> list[Path]:
         child_runs = [
             child
             for child in sorted(path.iterdir())
-            if child.is_dir()
-            and any(
-                (child / name).is_file()
-                for name in ("decisions.jsonl", "episodes.jsonl", "manifest.yaml")
-            )
+            if child.is_dir() and any((child / name).is_file() for name in run_marker_files)
         ]
         if child_runs:
             for child in child_runs:
@@ -111,12 +107,14 @@ def _resolve_run_dirs(run_dirs: Sequence[Path | str]) -> list[Path]:
 
 
 def load_runs_data(run_dirs: Sequence[Path | str]) -> LoadedRunsData:
-    """Load and deduplicate decisions, episodes, and manifests from run directories."""
+    """Load and deduplicate decisions, episodes, H2H matches, and manifests from run directories."""
     resolved_dirs = _resolve_run_dirs(run_dirs)
     decisions_map: dict[
-        tuple[str, str, str, int, str | None, str | None, str], DecisionLogRow
+        tuple[str, str, str, int, str | None, str | None, str, str | None, str | None],
+        DecisionLogRow,
     ] = {}
     episodes_map: dict[tuple[str, str, str, str, str], EpisodeLogRow] = {}
+    h2h_map: dict[tuple[str, str, str, str, str], H2HMatchLogRow] = {}
     manifests: list[RunManifest] = []
 
     for run_dir in resolved_dirs:
@@ -133,6 +131,8 @@ def load_runs_data(run_dirs: Sequence[Path | str]) -> LoadedRunsData:
                 row.render_variant,
                 row.text_format,
                 row.action_mode,
+                row.matchup_id,
+                row.opponent_type,
             )
             decisions_map[dkey] = row
         for ep in logger.load_episodes():
@@ -144,12 +144,27 @@ def load_runs_data(run_dirs: Sequence[Path | str]) -> LoadedRunsData:
                 ep.action_mode,
             )
             episodes_map[ekey] = ep
+        for match in logger.load_h2h_matches():
+            hkey = (
+                match.experiment_id,
+                match.row_a,
+                match.row_b,
+                match.episode_id,
+                match.action_mode,
+            )
+            h2h_map[hkey] = match
+
+    reconciled_decisions = reconcile_decisions(decisions_map.values())
+    reconciled_episodes = reconcile_episodes_with_decisions(
+        episodes_map.values(), reconciled_decisions
+    )
 
     return LoadedRunsData(
         run_dirs=tuple(resolved_dirs),
-        decisions=tuple(decisions_map.values()),
-        episodes=tuple(episodes_map.values()),
+        decisions=tuple(reconciled_decisions),
+        episodes=tuple(reconciled_episodes),
         manifests=tuple(manifests),
+        h2h_matches=tuple(h2h_map.values()),
     )
 
 
@@ -325,6 +340,7 @@ def mcnemar_exact_pvalue(
 
 Track1Key = tuple[str, str, str | None, str | None, str]
 Track2Key = tuple[str, str, str]
+H2HMatchupKey = tuple[str, str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +376,8 @@ class Track1Metrics:
     total_cost_usd: float
     cost_per_100_decisions_usd: float
     optimal_decisions_per_usd: float | None
+    infra_error_count: int = 0
+    rate_limit_error_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -393,9 +411,24 @@ class Track2Metrics:
     mean_agent_turns: float
     mean_latency_ms: float
     mean_effective_regret: float | None
+    aborted_errors: int = 0
+    rate_limit_errors: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def is_infra_decision(row: DecisionLogRow) -> bool:
+    """Return True when a decision failed due to infrastructure, API, or rate-limit errors."""
+    return bool(
+        not row.response_valid
+        and is_infra_error(row.error_type, row.error_message, row.error_category)
+    )
+
+
+def filter_evaluated_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLogRow]:
+    """Return decisions excluding infrastructure, API, and rate-limit failures."""
+    return [d for d in decisions if not is_infra_decision(d)]
 
 
 def _summarize_decision_group(
@@ -403,27 +436,35 @@ def _summarize_decision_group(
     rows: Sequence[DecisionLogRow],
 ) -> Track1Metrics:
     experiment_id, row_id, render_variant, text_format, action_mode = key
-    n = len(rows)
     first = rows[0]
+    infra_rows = [r for r in rows if is_infra_decision(r)]
+    eval_rows = [r for r in rows if not is_infra_decision(r)]
+    infra_error_count = len(infra_rows)
+    rate_limit_error_count = sum(
+        1
+        for r in infra_rows
+        if infer_error_category(r.error_type, r.error_message, r.error_category) == "rate_limit"
+    )
+    n = len(eval_rows)
 
-    optimal_count = sum(1 for r in rows if r.action_is_optimal)
-    legal_rows = [r for r in rows if r.action_is_legal]
+    optimal_count = sum(1 for r in eval_rows if r.action_is_optimal)
+    legal_rows = [r for r in eval_rows if r.action_is_legal]
     legal_count = len(legal_rows)
-    illegal_count = sum(1 for r in rows if r.response_valid and not r.action_is_legal)
-    invalid_count = sum(1 for r in rows if not r.response_valid)
+    illegal_count = sum(1 for r in eval_rows if r.response_valid and not r.action_is_legal)
+    invalid_count = sum(1 for r in eval_rows if not r.response_valid)
 
-    optimal_accuracy = optimal_count / n
+    optimal_accuracy = optimal_count / n if n > 0 else 0.0
     conditional_optimal_accuracy = (
         sum(1 for r in legal_rows if r.action_is_optimal) / legal_count
         if legal_count > 0
         else None
     )
-    illegal_rate = illegal_count / n
-    invalid_response_rate = invalid_count / n
+    illegal_rate = illegal_count / n if n > 0 else 0.0
+    invalid_response_rate = invalid_count / n if n > 0 else 0.0
 
     eff_regrets = [
         float(r.effective_regret)
-        for r in rows
+        for r in eval_rows
         if r.effective_regret is not None
     ]
     mean_effective_regret = float(np.mean(eff_regrets)) if eff_regrets else None
@@ -437,7 +478,7 @@ def _summarize_decision_group(
 
     e2e_latencies = [
         float(r.end_to_end_latency_ms if r.end_to_end_latency_ms is not None else r.model_latency_ms)
-        for r in rows
+        for r in eval_rows
         if (r.end_to_end_latency_ms is not None or r.model_latency_ms is not None)
     ]
     if e2e_latencies:
@@ -450,7 +491,7 @@ def _summarize_decision_group(
         p95_latency_ms = None
         mean_latency_ms = None
 
-    model_latencies = [float(r.model_latency_ms) for r in rows if r.model_latency_ms is not None]
+    model_latencies = [float(r.model_latency_ms) for r in eval_rows if r.model_latency_ms is not None]
     if model_latencies:
         mlat_arr = np.asarray(model_latencies, dtype=np.float64)
         model_p50_latency_ms: float | None = float(np.percentile(mlat_arr, 50))
@@ -461,8 +502,8 @@ def _summarize_decision_group(
         model_p95_latency_ms = None
         model_mean_latency_ms = None
 
-    total_cost_usd = float(sum(r.api_cost_usd for r in rows))
-    cost_per_100_decisions_usd = (total_cost_usd / n) * 100.0
+    total_cost_usd = float(sum(r.api_cost_usd for r in eval_rows))
+    cost_per_100_decisions_usd = (total_cost_usd / n) * 100.0 if n > 0 else 0.0
     optimal_decisions_per_usd = (
         optimal_count / total_cost_usd if total_cost_usd > 0.0 else None
     )
@@ -497,6 +538,8 @@ def _summarize_decision_group(
         total_cost_usd=total_cost_usd,
         cost_per_100_decisions_usd=cost_per_100_decisions_usd,
         optimal_decisions_per_usd=optimal_decisions_per_usd,
+        infra_error_count=infra_error_count,
+        rate_limit_error_count=rate_limit_error_count,
     )
 
 
@@ -577,19 +620,28 @@ def compute_track2_metrics(
         eps = grouped[key]
         row_id, action_mode, opponent_type = key
         first = eps[0]
-        games = len(eps)
-        wins = sum(1 for e in eps if e.outcome == "win")
-        draws = sum(1 for e in eps if e.outcome == "draw")
-        losses_by_board = sum(1 for e in eps if e.outcome == "loss_by_board")
+        aborted_eps = [e for e in eps if e.outcome == "aborted_error"]
+        eval_eps = [e for e in eps if e.outcome != "aborted_error"]
+        aborted_errors = len(aborted_eps)
+        rate_limit_errors = sum(
+            1
+            for e in aborted_eps
+            if e.termination_reason == "rate_limit"
+            or infer_error_category(e.error_type, e.error_message, e.error_category) == "rate_limit"
+        )
+        games = len(eval_eps)
+        wins = sum(1 for e in eval_eps if e.outcome == "win")
+        draws = sum(1 for e in eval_eps if e.outcome == "draw")
+        losses_by_board = sum(1 for e in eval_eps if e.outcome == "loss_by_board")
         losses_by_illegal_move = sum(
-            1 for e in eps if e.outcome == "loss_by_illegal_move"
+            1 for e in eval_eps if e.outcome == "loss_by_illegal_move"
         )
         non_losses = wins + draws
-        total_cost_usd = float(sum(e.total_cost_usd for e in eps))
+        total_cost_usd = float(sum(e.total_cost_usd for e in eval_eps))
 
         eff_regrets = [
             float(e.mean_effective_regret)
-            for e in eps
+            for e in eval_eps
             if e.mean_effective_regret is not None
         ]
 
@@ -606,22 +658,352 @@ def compute_track2_metrics(
             draws=draws,
             losses_by_board=losses_by_board,
             losses_by_illegal_move=losses_by_illegal_move,
-            win_rate=wins / games,
-            draw_rate=draws / games,
-            non_loss_rate=non_losses / games,
-            loss_by_board_rate=losses_by_board / games,
-            loss_by_illegal_move_rate=losses_by_illegal_move / games,
+            win_rate=wins / games if games > 0 else 0.0,
+            draw_rate=draws / games if games > 0 else 0.0,
+            non_loss_rate=non_losses / games if games > 0 else 0.0,
+            loss_by_board_rate=losses_by_board / games if games > 0 else 0.0,
+            loss_by_illegal_move_rate=losses_by_illegal_move / games if games > 0 else 0.0,
             total_cost_usd=total_cost_usd,
-            cost_per_episode_usd=total_cost_usd / games,
+            cost_per_episode_usd=total_cost_usd / games if games > 0 else 0.0,
             non_loss_games_per_usd=(
                 non_losses / total_cost_usd if total_cost_usd > 0.0 else None
             ),
-            mean_plies=float(np.mean([e.num_plies for e in eps])),
-            mean_agent_turns=float(np.mean([e.num_agent_turns for e in eps])),
-            mean_latency_ms=float(np.mean([e.total_latency_ms for e in eps])),
+            mean_plies=float(np.mean([e.num_plies for e in eval_eps])) if eval_eps else 0.0,
+            mean_agent_turns=float(np.mean([e.num_agent_turns for e in eval_eps])) if eval_eps else 0.0,
+            mean_latency_ms=float(np.mean([e.total_latency_ms for e in eval_eps])) if eval_eps else 0.0,
             mean_effective_regret=float(np.mean(eff_regrets)) if eff_regrets else None,
+            aborted_errors=aborted_errors,
+            rate_limit_errors=rate_limit_errors,
         )
     return results
+
+
+@dataclass(frozen=True, slots=True)
+class H2HMatchupMetrics:
+    """Aggregated Head-to-Head (`H2H`) metrics for one `(row_a, row_b, action_mode)` matchup."""
+
+    matchup_id: str
+    row_a: str
+    row_b: str
+    condition_code_a: str
+    condition_code_b: str
+    model_key_a: str
+    model_key_b: str
+    model_id_a: str
+    model_id_b: str
+    modality_a: str
+    modality_b: str
+    action_mode: str
+    games: int
+    wins_a: int
+    wins_b: int
+    draws: int
+    board_wins_a: int
+    board_wins_b: int
+    forfeit_wins_a: int
+    forfeit_wins_b: int
+    win_rate_a: float
+    win_rate_b: float
+    draw_rate: float
+    score_a: float
+    score_a_ci_low: float
+    score_a_ci_high: float
+    score_b: float
+    p_value_decisive: float
+    turns_a: int
+    turns_b: int
+    optimal_turns_a: int
+    optimal_turns_b: int
+    optimal_rate_a: float
+    optimal_rate_b: float
+    illegal_moves_a: int
+    illegal_moves_b: int
+    invalid_responses_a: int
+    invalid_responses_b: int
+    mean_effective_regret_a: float
+    mean_effective_regret_b: float
+    mean_latency_ms_a: float
+    mean_latency_ms_b: float
+    cost_usd_a: float
+    cost_usd_b: float
+    total_cost_usd: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class H2HStandingMetrics:
+    """Overall H2H arena standing aggregated per `row_id` across all opponents played."""
+
+    row_id: str
+    condition_code: str
+    model_key: str
+    model_id: str
+    modality: str
+    games: int
+    wins: int
+    draws: int
+    losses: int
+    board_wins: int
+    forfeit_wins: int
+    losses_by_board: int
+    losses_by_illegal_move: int
+    points: float
+    score_rate: float
+    win_rate: float
+    draw_rate: float
+    optimal_rate: float
+    mean_effective_regret: float
+    total_cost_usd: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _row_sort_index(row_id: str) -> tuple[int, str]:
+    idx = CORE_ROW_ORDER.index(row_id) if row_id in CORE_ROW_ORDER else len(CORE_ROW_ORDER)
+    return (idx, row_id)
+
+
+def compute_h2h_metrics(
+    matches: Sequence[H2HMatchLogRow],
+    *,
+    n_bootstrap: int = DEFAULT_BOOTSTRAP_SAMPLES,
+    seed: int = DEFAULT_BOOTSTRAP_SEED,
+) -> dict[H2HMatchupKey, H2HMatchupMetrics]:
+    """Compute head-to-head matchup metrics grouped by `(row_a, row_b, action_mode)`."""
+    if not matches:
+        return {}
+
+    grouped: dict[H2HMatchupKey, list[H2HMatchLogRow]] = defaultdict(list)
+    for m in matches:
+        grouped[(m.row_a, m.row_b, m.action_mode)].append(m)
+
+    results: dict[H2HMatchupKey, H2HMatchupMetrics] = {}
+    for key in sorted(
+        grouped.keys(),
+        key=lambda k: (_row_sort_index(k[0]), _row_sort_index(k[1]), k[2]),
+    ):
+        grp = grouped[key]
+        row_a, row_b, action_mode = key
+        first = grp[0]
+        games = len(grp)
+
+        wins_a = sum(1 for m in grp if m.outcome == "player_a_win")
+        wins_b = sum(1 for m in grp if m.outcome == "player_b_win")
+        draws = sum(1 for m in grp if m.outcome == "draw")
+
+        board_wins_a = sum(1 for m in grp if m.outcome_a == "win")
+        board_wins_b = sum(1 for m in grp if m.outcome_b == "win")
+        forfeit_wins_a = sum(1 for m in grp if m.outcome_a == "win_by_forfeit")
+        forfeit_wins_b = sum(1 for m in grp if m.outcome_b == "win_by_forfeit")
+
+        per_game_scores_a = [
+            1.0 if m.outcome == "player_a_win" else (0.5 if m.outcome == "draw" else 0.0)
+            for m in grp
+        ]
+        score_ci = bootstrap_ci(
+            per_game_scores_a,
+            n_bootstrap=n_bootstrap,
+            seed=seed,
+        )
+        score_a = score_ci.mean
+        p_val = mcnemar_exact_from_counts(wins_a, wins_b) if (wins_a + wins_b) > 0 else 1.0
+
+        turns_a = sum(m.turns_a for m in grp)
+        turns_b = sum(m.turns_b for m in grp)
+        opt_a = sum(m.optimal_turns_a for m in grp)
+        opt_b = sum(m.optimal_turns_b for m in grp)
+
+        regret_sum_a = sum(m.mean_effective_regret_a * m.turns_a for m in grp)
+        regret_sum_b = sum(m.mean_effective_regret_b * m.turns_b for m in grp)
+        lat_sum_a = sum(m.latency_ms_a for m in grp)
+        lat_sum_b = sum(m.latency_ms_b for m in grp)
+        cost_a = float(sum(m.cost_usd_a for m in grp))
+        cost_b = float(sum(m.cost_usd_b for m in grp))
+
+        results[key] = H2HMatchupMetrics(
+            matchup_id=first.matchup_id,
+            row_a=row_a,
+            row_b=row_b,
+            condition_code_a=first.condition_code_a,
+            condition_code_b=first.condition_code_b,
+            model_key_a=first.model_key_a,
+            model_key_b=first.model_key_b,
+            model_id_a=first.model_id_a,
+            model_id_b=first.model_id_b,
+            modality_a=first.modality_a,
+            modality_b=first.modality_b,
+            action_mode=action_mode,
+            games=games,
+            wins_a=wins_a,
+            wins_b=wins_b,
+            draws=draws,
+            board_wins_a=board_wins_a,
+            board_wins_b=board_wins_b,
+            forfeit_wins_a=forfeit_wins_a,
+            forfeit_wins_b=forfeit_wins_b,
+            win_rate_a=wins_a / games,
+            win_rate_b=wins_b / games,
+            draw_rate=draws / games,
+            score_a=score_a,
+            score_a_ci_low=score_ci.ci_low,
+            score_a_ci_high=score_ci.ci_high,
+            score_b=1.0 - score_a,
+            p_value_decisive=p_val,
+            turns_a=turns_a,
+            turns_b=turns_b,
+            optimal_turns_a=opt_a,
+            optimal_turns_b=opt_b,
+            optimal_rate_a=(opt_a / turns_a) if turns_a > 0 else 0.0,
+            optimal_rate_b=(opt_b / turns_b) if turns_b > 0 else 0.0,
+            illegal_moves_a=sum(m.illegal_moves_a for m in grp),
+            illegal_moves_b=sum(m.illegal_moves_b for m in grp),
+            invalid_responses_a=sum(m.invalid_responses_a for m in grp),
+            invalid_responses_b=sum(m.invalid_responses_b for m in grp),
+            mean_effective_regret_a=(regret_sum_a / turns_a) if turns_a > 0 else 0.0,
+            mean_effective_regret_b=(regret_sum_b / turns_b) if turns_b > 0 else 0.0,
+            mean_latency_ms_a=(lat_sum_a / turns_a) if turns_a > 0 else 0.0,
+            mean_latency_ms_b=(lat_sum_b / turns_b) if turns_b > 0 else 0.0,
+            cost_usd_a=cost_a,
+            cost_usd_b=cost_b,
+            total_cost_usd=float(sum(m.total_cost_usd for m in grp)),
+        )
+    return results
+
+
+def compute_h2h_standings(
+    matches: Sequence[H2HMatchLogRow],
+    *,
+    action_mode: str | None = None,
+) -> list[H2HStandingMetrics]:
+    """Compute overall H2H standings per `row_id` aggregated across all opponents."""
+    filtered = [m for m in matches if action_mode is None or m.action_mode == action_mode]
+    if not filtered:
+        return []
+
+    accum: dict[str, dict[str, Any]] = {}
+
+    def _record_side(
+        row_id: str,
+        condition_code: str,
+        model_key: str,
+        model_id: str,
+        modality: str,
+        outcome: PlayerH2HOutcome | str,
+        turns: int,
+        optimal_turns: int,
+        mean_regret: float,
+        cost_usd: float,
+    ) -> None:
+        bucket = accum.setdefault(
+            row_id,
+            {
+                "row_id": row_id,
+                "condition_code": condition_code,
+                "model_key": model_key,
+                "model_id": model_id,
+                "modality": modality,
+                "games": 0,
+                "wins": 0,
+                "draws": 0,
+                "losses": 0,
+                "board_wins": 0,
+                "forfeit_wins": 0,
+                "losses_by_board": 0,
+                "losses_by_illegal_move": 0,
+                "turns": 0,
+                "optimal_turns": 0,
+                "regret_turn_sum": 0.0,
+                "total_cost_usd": 0.0,
+            },
+        )
+        bucket["games"] += 1
+        if outcome in ("win", "win_by_forfeit"):
+            bucket["wins"] += 1
+            if outcome == "win":
+                bucket["board_wins"] += 1
+            else:
+                bucket["forfeit_wins"] += 1
+        elif outcome == "draw":
+            bucket["draws"] += 1
+        else:
+            bucket["losses"] += 1
+            if outcome == "loss":
+                bucket["losses_by_board"] += 1
+            elif outcome == "loss_by_illegal_move":
+                bucket["losses_by_illegal_move"] += 1
+        bucket["turns"] += turns
+        bucket["optimal_turns"] += optimal_turns
+        bucket["regret_turn_sum"] += mean_regret * turns
+        bucket["total_cost_usd"] += cost_usd
+
+    for m in filtered:
+        _record_side(
+            m.row_a,
+            m.condition_code_a,
+            m.model_key_a,
+            m.model_id_a,
+            m.modality_a,
+            m.outcome_a,
+            m.turns_a,
+            m.optimal_turns_a,
+            m.mean_effective_regret_a,
+            m.cost_usd_a,
+        )
+        _record_side(
+            m.row_b,
+            m.condition_code_b,
+            m.model_key_b,
+            m.model_id_b,
+            m.modality_b,
+            m.outcome_b,
+            m.turns_b,
+            m.optimal_turns_b,
+            m.mean_effective_regret_b,
+            m.cost_usd_b,
+        )
+
+    standings: list[H2HStandingMetrics] = []
+    for bucket in accum.values():
+        games = bucket["games"]
+        turns = bucket["turns"]
+        points = bucket["wins"] + 0.5 * bucket["draws"]
+        standings.append(
+            H2HStandingMetrics(
+                row_id=bucket["row_id"],
+                condition_code=bucket["condition_code"],
+                model_key=bucket["model_key"],
+                model_id=bucket["model_id"],
+                modality=bucket["modality"],
+                games=games,
+                wins=bucket["wins"],
+                draws=bucket["draws"],
+                losses=bucket["losses"],
+                board_wins=bucket["board_wins"],
+                forfeit_wins=bucket["forfeit_wins"],
+                losses_by_board=bucket["losses_by_board"],
+                losses_by_illegal_move=bucket["losses_by_illegal_move"],
+                points=points,
+                score_rate=points / games,
+                win_rate=bucket["wins"] / games,
+                draw_rate=bucket["draws"] / games,
+                optimal_rate=(bucket["optimal_turns"] / turns) if turns > 0 else 0.0,
+                mean_effective_regret=(bucket["regret_turn_sum"] / turns) if turns > 0 else 0.0,
+                total_cost_usd=bucket["total_cost_usd"],
+            )
+        )
+
+    standings.sort(
+        key=lambda s: (
+            -s.score_rate,
+            -s.wins,
+            s.losses_by_illegal_move,
+            _row_sort_index(s.row_id),
+        )
+    )
+    return standings
 
 
 @dataclass(frozen=True, slots=True)
@@ -671,8 +1053,8 @@ def compare_paired_decisions(
     seed: int = DEFAULT_BOOTSTRAP_SEED,
 ) -> PairedComparisonResult | None:
     """Compare two decision sets aligned on shared `episode_id` positions."""
-    map_x = {r.episode_id: r for r in rows_x}
-    map_y = {r.episode_id: r for r in rows_y}
+    map_x = {r.episode_id: r for r in filter_evaluated_decisions(rows_x)}
+    map_y = {r.episode_id: r for r in filter_evaluated_decisions(rows_y)}
     shared_ids = sorted(set(map_x.keys()) & set(map_y.keys()))
     if not shared_ids:
         return None
@@ -880,10 +1262,15 @@ def compute_dm_calibration(
     fallback_decisions: Sequence[DecisionLogRow] | None = None,
 ) -> DMCalibrationResult:
     """Compute top-1 reliability (ECE, Brier), multi-optimal/illegal mass, and abstention sweep."""
-    if not decisions:
+    eval_decisions = filter_evaluated_decisions(decisions)
+    if not eval_decisions:
         raise ValueError("Cannot compute DM calibration on empty decision sequence")
     if n_bins < 1:
         raise ValueError(f"n_bins must be >= 1, got {n_bins}")
+
+    decisions = eval_decisions
+    if fallback_decisions is not None:
+        fallback_decisions = filter_evaluated_decisions(fallback_decisions)
 
     tau_grid = (
         [float(t) for t in taus]
@@ -1045,7 +1432,7 @@ def select_core_t2_decisions(decisions: Sequence[DecisionLogRow]) -> list[Decisi
     return [
         d
         for d in decisions
-        if d.experiment_id not in {"M0_smoke", "T3", "T4", "T5", "T6"}
+        if d.experiment_id not in {"M0_smoke", "T3", "T4", "T5", "T6", "H2H"}
         and d.action_mode == "all_9"
         and d.render_variant in (None, "clean_default")
         and d.text_format in (None, "json_canonical")
@@ -1059,7 +1446,7 @@ def select_t3_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLog
         for d in decisions
         if d.experiment_id == "T3"
         or (
-            d.experiment_id not in {"M0_smoke", "T6"}
+            d.experiment_id not in {"M0_smoke", "T6", "H2H"}
             and d.render_variant in {"labeled_margins", "dark_low_contrast", "thin_alt_font", "tilt_blur"}
         )
     ]
@@ -1092,11 +1479,12 @@ def select_t4_decisions(
     decisions: Sequence[DecisionLogRow],
 ) -> tuple[list[DecisionLogRow], list[DecisionLogRow]]:
     """Return `(all_9_baseline, legal_only_t4)` paired lists for T4 schema comparison."""
+    decisions = filter_evaluated_decisions(decisions)
     legal_only = [
         d
         for d in decisions
         if (d.experiment_id == "T4" and d.action_mode == "legal_only")
-        or (d.experiment_id not in {"M0_smoke", "T6"} and d.action_mode == "legal_only")
+        or (d.experiment_id not in {"M0_smoke", "T6", "H2H"} and d.action_mode == "legal_only")
     ]
     if not legal_only:
         return [], []
@@ -1133,7 +1521,7 @@ def select_t5_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLog
         for d in decisions
         if d.experiment_id == "T5"
         or (
-            d.experiment_id not in {"M0_smoke", "T6"}
+            d.experiment_id not in {"M0_smoke", "T6", "H2H"}
             and d.text_format in {"ascii_grid", "coord_list", "json_with_history"}
         )
     ]
@@ -1164,9 +1552,10 @@ def select_t5_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLog
 
 def select_dm_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLogRow]:
     """Select Decision Model decisions from Track 1 core (all_9) for calibration analysis."""
+    decisions = filter_evaluated_decisions(decisions)
     core = select_core_t2_decisions(decisions)
     pool = core if core else [
-        d for d in decisions if d.experiment_id not in {"M0_smoke", "T6"} and d.action_mode == "all_9"
+        d for d in decisions if d.experiment_id not in {"M0_smoke", "T6", "H2H"} and d.action_mode == "all_9"
     ]
     return [
         d

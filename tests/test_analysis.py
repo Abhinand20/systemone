@@ -18,13 +18,16 @@ from dm_bench.analysis import (
     analyze_runs,
     compare_paired_decisions,
     compute_dm_calibration,
+    compute_h2h_metrics,
+    compute_h2h_standings,
     compute_track1_metrics,
     compute_track2_metrics,
+    load_runs_data,
     mcnemar_exact_from_counts,
     mcnemar_exact_pvalue,
     paired_bootstrap_ci,
 )
-from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, RunManifest
+from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, H2HMatchLogRow, RunManifest
 from dm_bench.logging_io import RunLogger
 
 ROW_META: dict[str, tuple[str, str, str, str]] = {
@@ -550,3 +553,422 @@ def test_analyze_runs_skips_missing_experiments_gracefully(tmp_path: Path) -> No
     assert statuses["t5_prompt_formats"] is False
     assert statuses["t6_match_outcomes"] is False
     assert statuses["dm_calibration_and_abstention"] is False
+
+
+def test_h2h_stats_standings_plots_and_report(tmp_path: Path) -> None:
+    # 1) Track 1 paired Jev vs Gdec across all 3 modalities (V, T, VT)
+    t2_dir = tmp_path / "experiments" / "results" / "T1_T2" / "run_t2"
+    t2_logger = RunLogger(
+        t2_dir,
+        manifest=RunManifest(
+            experiment_id="T1_T2",
+            run_id="run_t2",
+            created_at_utc="2026-11-15T00:00:00Z",
+            updated_at_utc="2026-11-15T00:00:00Z",
+            rows=["A_jev_V", "B_jev_T", "D_jev_VT", "A_gdec_V", "B_gdec_T", "D_gdec_VT"],
+        ),
+    )
+    for idx in range(6):
+        ep_id = f"pos_{idx:04d}"
+        for rid, is_opt in (
+            ("A_jev_V", idx < 5),
+            ("B_jev_T", idx < 5),
+            ("D_jev_VT", True),
+            ("A_gdec_V", idx < 4),
+            ("B_gdec_T", idx < 4),
+            ("D_gdec_VT", idx < 5),
+        ):
+            t2_logger.log_decision(
+                _make_decision(
+                    experiment_id="T1_T2",
+                    run_id="run_t2",
+                    row_id=rid,
+                    episode_id=ep_id,
+                    action_is_optimal=is_opt,
+                    effective_regret=0.0 if is_opt else 1.0,
+                )
+            )
+    t2_logger.finalize(status="completed")
+
+    # 2) H2H Arena matches + H2H turns (H2H turns must be excluded from Track 1 core)
+    h2h_dir = tmp_path / "experiments" / "results" / "H2H" / "run_h2h"
+    h2h_logger = RunLogger(
+        h2h_dir,
+        manifest=RunManifest(
+            experiment_id="H2H",
+            run_id="run_h2h",
+            created_at_utc="2026-11-15T00:00:00Z",
+            updated_at_utc="2026-11-15T00:00:00Z",
+            rows=["A_jev_V", "A_gdec_V"],
+            action_modes=["all_9"],
+        ),
+    )
+    matches = [
+        H2HMatchLogRow(
+            run_id="run_h2h",
+            matchup_id="A_jev_V_vs_A_gdec_V",
+            episode_id="h2h_all_9_000",
+            game_idx=0,
+            action_mode="all_9",
+            opening_mode="standard",
+            opening_moves=[],
+            row_a="A_jev_V",
+            condition_code_a="A-DM-V",
+            model_key_a="jev_1_14_0",
+            model_id_a="jev-1.14.0",
+            modality_a="image",
+            mark_a="X",
+            row_b="A_gdec_V",
+            condition_code_b="A-DM-V",
+            model_key_b="gemini_decision_1",
+            model_id_b="gemini-decision-1",
+            modality_b="image",
+            mark_b="O",
+            starting_mark="X",
+            a_goes_first=True,
+            outcome="player_a_win",
+            outcome_a="win",
+            outcome_b="loss",
+            winner_row_id="A_jev_V",
+            winner_mark="X",
+            termination_reason="win",
+            num_plies=7,
+            num_model_turns=7,
+            turns_a=4,
+            turns_b=3,
+            optimal_turns_a=4,
+            optimal_turns_b=2,
+            cost_usd_a=0.002,
+            cost_usd_b=0.004,
+            total_cost_usd=0.006,
+            latency_ms_a=400.0,
+            latency_ms_b=600.0,
+            total_latency_ms=1000.0,
+            final_board="XXXOO..O.",
+            move_history=["R1C1", "R2C1", "R1C2", "R2C2", "R1C3"],
+            timestamp_utc="2026-11-15T00:00:00Z",
+        ),
+        H2HMatchLogRow(
+            run_id="run_h2h",
+            matchup_id="A_jev_V_vs_A_gdec_V",
+            episode_id="h2h_all_9_001",
+            game_idx=1,
+            action_mode="all_9",
+            opening_mode="standard",
+            opening_moves=[],
+            row_a="A_jev_V",
+            condition_code_a="A-DM-V",
+            model_key_a="jev_1_14_0",
+            model_id_a="jev-1.14.0",
+            modality_a="image",
+            mark_a="O",
+            row_b="A_gdec_V",
+            condition_code_b="A-DM-V",
+            model_key_b="gemini_decision_1",
+            model_id_b="gemini-decision-1",
+            modality_b="image",
+            mark_b="X",
+            starting_mark="X",
+            a_goes_first=False,
+            outcome="player_a_win",
+            outcome_a="win_by_forfeit",
+            outcome_b="loss_by_illegal_move",
+            winner_row_id="A_jev_V",
+            forfeited_by_row_id="A_gdec_V",
+            termination_reason="illegal_forfeit",
+            num_plies=2,
+            num_model_turns=2,
+            turns_a=1,
+            turns_b=1,
+            optimal_turns_a=1,
+            optimal_turns_b=0,
+            illegal_moves_b=1,
+            mean_effective_regret_b=1.0,
+            cost_usd_a=0.001,
+            cost_usd_b=0.002,
+            total_cost_usd=0.003,
+            latency_ms_a=100.0,
+            latency_ms_b=200.0,
+            total_latency_ms=300.0,
+            final_board="X........",
+            move_history=["R1C1"],
+            timestamp_utc="2026-11-15T00:01:00Z",
+        ),
+        H2HMatchLogRow(
+            run_id="run_h2h",
+            matchup_id="A_jev_V_vs_A_gdec_V",
+            episode_id="h2h_all_9_002",
+            game_idx=2,
+            action_mode="all_9",
+            opening_mode="standard",
+            opening_moves=["R2C2"],
+            row_a="A_jev_V",
+            condition_code_a="A-DM-V",
+            model_key_a="jev_1_14_0",
+            model_id_a="jev-1.14.0",
+            modality_a="image",
+            mark_a="O",
+            row_b="A_gdec_V",
+            condition_code_b="A-DM-V",
+            model_key_b="gemini_decision_1",
+            model_id_b="gemini-decision-1",
+            modality_b="image",
+            mark_b="X",
+            starting_mark="O",
+            a_goes_first=False,
+            outcome="draw",
+            outcome_a="draw",
+            outcome_b="draw",
+            termination_reason="draw",
+            num_plies=9,
+            num_model_turns=8,
+            turns_a=4,
+            turns_b=4,
+            optimal_turns_a=4,
+            optimal_turns_b=4,
+            cost_usd_a=0.002,
+            cost_usd_b=0.004,
+            total_cost_usd=0.006,
+            latency_ms_a=400.0,
+            latency_ms_b=800.0,
+            total_latency_ms=1200.0,
+            final_board="XOXOXOOXO",
+            move_history=["R2C2"],
+            timestamp_utc="2026-11-15T00:02:00Z",
+        ),
+        H2HMatchLogRow(
+            run_id="run_h2h",
+            matchup_id="A_jev_V_vs_A_gdec_V",
+            episode_id="h2h_all_9_003",
+            game_idx=3,
+            action_mode="all_9",
+            opening_mode="standard",
+            opening_moves=["R1C1"],
+            row_a="A_jev_V",
+            condition_code_a="A-DM-V",
+            model_key_a="jev_1_14_0",
+            model_id_a="jev-1.14.0",
+            modality_a="image",
+            mark_a="X",
+            row_b="A_gdec_V",
+            condition_code_b="A-DM-V",
+            model_key_b="gemini_decision_1",
+            model_id_b="gemini-decision-1",
+            modality_b="image",
+            mark_b="O",
+            starting_mark="O",
+            a_goes_first=False,
+            outcome="player_b_win",
+            outcome_a="loss",
+            outcome_b="win",
+            winner_row_id="A_gdec_V",
+            winner_mark="O",
+            termination_reason="win",
+            num_plies=8,
+            num_model_turns=7,
+            turns_a=3,
+            turns_b=4,
+            optimal_turns_a=2,
+            optimal_turns_b=4,
+            mean_effective_regret_a=1.0 / 3.0,
+            cost_usd_a=0.001,
+            cost_usd_b=0.003,
+            total_cost_usd=0.004,
+            latency_ms_a=300.0,
+            latency_ms_b=700.0,
+            total_latency_ms=1000.0,
+            final_board="OOOX.X..X",
+            move_history=["R1C1"],
+            timestamp_utc="2026-11-15T00:03:00Z",
+        ),
+    ]
+    for m in matches:
+        h2h_logger.log_h2h_match(m)
+    # Log an H2H turn on A_jev_V that should NOT leak into Track 1 core puzzles.
+    h2h_logger.log_decision(
+        _make_decision(
+            experiment_id="H2H",
+            run_id="run_h2h",
+            row_id="A_jev_V",
+            episode_id="h2h_all_9_000",
+            action_is_optimal=False,
+            action_is_legal=False,
+            effective_regret=2.0,
+        )
+    )
+    h2h_logger.finalize(status="completed")
+
+    metrics_map = compute_h2h_metrics(matches, n_bootstrap=200)
+    assert ("A_jev_V", "A_gdec_V", "all_9") in metrics_map
+    mm = metrics_map[("A_jev_V", "A_gdec_V", "all_9")]
+    assert mm.games == 4
+    assert (mm.wins_a, mm.draws, mm.wins_b) == (2, 1, 1)
+    assert mm.board_wins_a == 1
+    assert mm.forfeit_wins_a == 1
+    assert mm.score_a == pytest.approx(2.5 / 4.0)
+    assert mm.score_a_ci_low <= mm.score_a <= mm.score_a_ci_high
+    assert mm.p_value_decisive == pytest.approx(mcnemar_exact_from_counts(2, 1))
+    assert mm.optimal_rate_a == pytest.approx(11 / 12)
+    assert mm.optimal_rate_b == pytest.approx(10 / 12)
+
+    standings = compute_h2h_standings(matches)
+    assert [s.row_id for s in standings] == ["A_jev_V", "A_gdec_V"]
+    assert standings[0].points == pytest.approx(2.5)
+    assert standings[1].losses_by_illegal_move == 1
+
+    result = analyze_runs([t2_dir, h2h_dir], repo_root=tmp_path, tag="h2h_test", n_bootstrap=200)
+    summary = result["summary"]
+    assert summary["total_h2h_matches"] == 4
+    assert len(summary["h2h_matchups"]) == 1
+    assert len(summary["h2h_standings"]) == 2
+    assert len(summary["paired_comparisons"]["H4_dm_head_to_head"]) == 3
+
+    # Verify Track 1 core metrics exclude the H2H turn cleanly
+    t2_jev = next(r for r in summary["core_t2_metrics"] if r["row_id"] == "A_jev_V")
+    assert t2_jev["n"] == 6
+    assert t2_jev["illegal_count"] == 0
+
+    plot_stems = {Path(p).stem for p in result["plots"]}
+    assert "h2h_match_outcomes" in plot_stems
+    assert (tmp_path / "analysis" / "plots" / "h2h_test" / "h2h_match_outcomes.png").is_file()
+    assert (tmp_path / "analysis" / "plots" / "h2h_test" / "h2h_match_outcomes.svg").is_file()
+
+    md = Path(result["report_path"]).read_text(encoding="utf-8")
+    assert "## 6b. Head-to-Head Model-vs-Model Arena (H2H)" in md
+    assert "### H4 — Decision Model vs Decision Model (Jev vs Gemini Decision 1)" in md
+    assert "`A_jev_V` vs `A_gdec_V`" in md
+
+
+def test_reconcile_legacy_rate_limit_forfeit_and_exclude_from_metrics(tmp_path: Path) -> None:
+    repo_root = tmp_path
+    t2_dir = repo_root / "experiments" / "results" / "T2" / "run_t2_rl"
+    t6_dir = repo_root / "experiments" / "results" / "T6" / "run_t6_rl"
+
+    t2_logger = RunLogger(t2_dir)
+    # 1 optimal, 1 suboptimal legal, 1 model ParseError, 1 legacy RateLimitError (polluted effective_regret=2)
+    t2_logger.log_decision(
+        _make_decision(
+            experiment_id="T2",
+            run_id="run_t2_rl",
+            row_id="A_gdec_V",
+            episode_id="p0",
+            action_is_optimal=True,
+            effective_regret=0,
+        )
+    )
+    t2_logger.log_decision(
+        _make_decision(
+            experiment_id="T2",
+            run_id="run_t2_rl",
+            row_id="A_gdec_V",
+            episode_id="p1",
+            action_is_optimal=False,
+            effective_regret=1,
+        )
+    )
+    t2_logger.log_decision(
+        _make_decision(
+            experiment_id="T2",
+            run_id="run_t2_rl",
+            row_id="A_gdec_V",
+            episode_id="p2",
+            response_valid=False,
+            action_is_legal=False,
+            action_is_optimal=False,
+            requested_action=None,
+            effective_regret=2,
+            error_type="ParseError",
+        )
+    )
+    t2_logger.log_decision(
+        _make_decision(
+            experiment_id="T2",
+            run_id="run_t2_rl",
+            row_id="A_gdec_V",
+            episode_id="p3",
+            response_valid=False,
+            action_is_legal=False,
+            action_is_optimal=False,
+            requested_action=None,
+            effective_regret=2,
+            error_type="RateLimitError",
+        ).model_copy(update={"error_message": "429 RESOURCE_EXHAUSTED"})
+    )
+
+    t6_logger = RunLogger(t6_dir)
+    # Completed win
+    t6_logger.log_episode(
+        _make_episode(row_id="A_gdec_V", episode_id="m0", outcome="win")
+    )
+    # Real illegal move
+    t6_logger.log_episode(
+        _make_episode(
+            row_id="A_gdec_V",
+            episode_id="m1",
+            outcome="loss_by_illegal_move",
+        ).model_copy(update={"illegal_moves": 1})
+    )
+    t6_logger.log_decision(
+        _make_decision(
+            experiment_id="T6",
+            run_id="run_t6_rl",
+            row_id="A_gdec_V",
+            episode_id="m1",
+            response_valid=True,
+            action_is_legal=False,
+            action_is_optimal=False,
+            effective_regret=2,
+        ).model_copy(update={"opponent_type": "random"})
+    )
+    # Legacy polluted RateLimitError logged as loss_by_illegal_move
+    t6_logger.log_episode(
+        _make_episode(
+            row_id="A_gdec_V",
+            episode_id="m2",
+            outcome="loss_by_illegal_move",
+        ).model_copy(update={"illegal_moves": 1})
+    )
+    t6_logger.log_decision(
+        _make_decision(
+            experiment_id="T6",
+            run_id="run_t6_rl",
+            row_id="A_gdec_V",
+            episode_id="m2",
+            response_valid=False,
+            action_is_legal=False,
+            action_is_optimal=False,
+            requested_action=None,
+            effective_regret=2,
+            error_type="RateLimitError",
+        ).model_copy(
+            update={
+                "opponent_type": "random",
+                "error_message": "429 RESOURCE_EXHAUSTED",
+            }
+        )
+    )
+
+    loaded = load_runs_data([t2_dir, t6_dir])
+    t1 = compute_track1_metrics([d for d in loaded.decisions if d.experiment_id == "T2"])
+    m1 = next(iter(t1.values()))
+    assert m1.n == 3
+    assert m1.optimal_count == 1
+    assert m1.invalid_count == 1
+    assert m1.infra_error_count == 1
+    assert m1.rate_limit_error_count == 1
+    assert m1.optimal_accuracy == pytest.approx(1 / 3)
+
+    t2 = compute_track2_metrics(loaded.episodes)
+    g = t2[("A_gdec_V", "all_9", "random")]
+    assert g.games == 2
+    assert g.wins == 1
+    assert g.losses_by_illegal_move == 1
+    assert g.aborted_errors == 1
+    assert g.rate_limit_errors == 1
+    assert g.win_rate == pytest.approx(0.5)
+    assert g.loss_by_illegal_move_rate == pytest.approx(0.5)
+
+    res = analyze_runs([t2_dir, t6_dir], repo_root=repo_root, tag="rl_check", n_bootstrap=200)
+    md = Path(res["report_path"]).read_text(encoding="utf-8")
+    assert "Excluded infrastructure/API decision errors" in md
+    assert "Excluded aborted episodes due to API/rate-limit errors" in md
