@@ -21,3 +21,9 @@ experiments/results/*
 !experiments/results/.gitkeep
 experiments/media/*
 !experiments/media/.gitkeep
+
+# Generated analysis plots & reports
+analysis/plots/*
+!analysis/plots/.gitkeep
+analysis/reports/*
+!analysis/reports/.gitkeep
