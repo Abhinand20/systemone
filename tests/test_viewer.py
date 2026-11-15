@@ -559,3 +559,29 @@ def test_episodes_list_and_ordered_replay(tmp_path: Path) -> None:
     assert rb["decisions"][0]["termination_reason"] == "illegal_forfeit"
 
     assert client.get("/api/runs/T6/run_t6/episodes/ep_missing").status_code == 404
+
+
+def test_index_ui_plain_english_and_no_legacy_jargon(tmp_path: Path) -> None:
+    app = create_app(repo_root=tmp_path)
+    client = TestClient(app)
+
+    res_index = client.get("/")
+    assert res_index.status_code == 200
+    html = res_index.text
+
+    assert "dm-bench Trace Viewer" in html
+    for expected in (
+        "Board Puzzles",
+        "Full Games",
+        "Best Move Guide",
+        "Model Responses on This Board",
+    ):
+        assert expected in html
+
+    for legacy in (
+        "T1–T6 Inspector",
+        "9-Way Matrix",
+        "Closed-Loop Episode Scrubber",
+    ):
+        assert legacy not in html
+

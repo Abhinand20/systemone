@@ -6,12 +6,13 @@
   <title>dm-bench Trace Viewer</title>
   <style>
     :root {
-      --bg: #0b1120;
+      --bg: #080d1a;
       --surface: #111827;
-      --surface-2: #1e293b;
-      --surface-3: #0f172a;
-      --border: #283548;
-      --border-strong: #3b4f6b;
+      --surface-2: #1c273a;
+      --surface-3: #0d1424;
+      --surface-card: #131d31;
+      --border: #253349;
+      --border-strong: #394f6e;
       --text: #f1f5f9;
       --text-muted: #94a3b8;
       --text-dim: #64748b;
@@ -25,39 +26,46 @@
       --red-soft: rgba(239, 68, 68, 0.16);
       --rose: #fb7185;
       --rose-soft: rgba(251, 113, 133, 0.16);
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+      --violet: #a78bfa;
+      --violet-soft: rgba(167, 139, 250, 0.16);
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+      --sans: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     }
 
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
-      background: var(--bg);
+      background:
+        radial-gradient(ellipse 90% 40% at 50% -10%, rgba(56, 189, 248, 0.08), transparent 70%),
+        var(--bg);
       color: var(--text);
       font-family: var(--sans);
       font-size: 14px;
-      line-height: 1.45;
+      line-height: 1.5;
+      min-height: 100vh;
     }
 
+    /* Header */
     .topbar {
       position: sticky;
       top: 0;
-      z-index: 20;
+      z-index: 30;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      padding: 12px 20px;
-      background: rgba(11, 17, 32, 0.94);
-      backdrop-filter: blur(8px);
+      gap: 14px;
+      padding: 12px 22px;
+      background: rgba(8, 13, 26, 0.92);
+      backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--border);
     }
 
     .brand {
       display: flex;
       align-items: baseline;
+      flex-wrap: wrap;
       gap: 10px;
     }
     .brand h1 {
@@ -65,11 +73,12 @@
       font-size: 17px;
       font-weight: 700;
       letter-spacing: -0.02em;
+      color: var(--text);
     }
-    .brand span {
+    .brand-sub {
       color: var(--accent);
-      font-family: var(--mono);
-      font-size: 12px;
+      font-size: 13px;
+      font-weight: 500;
     }
 
     .run-controls {
@@ -80,10 +89,10 @@
     }
     .run-controls label {
       color: var(--text-muted);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
     }
 
     select, button, input[type="range"] {
@@ -95,12 +104,16 @@
       background: var(--surface-2);
       color: var(--text);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 10px;
+      border-radius: 7px;
+      padding: 6px 11px;
       outline: none;
     }
-    select:focus, button:focus-visible {
-      border-color: var(--accent);
+    select {
+      max-width: min(560px, 78vw);
+    }
+    select:focus-visible, button:focus-visible, .table-wrap:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
     }
     button {
       cursor: pointer;
@@ -117,44 +130,161 @@
     }
     button.primary {
       background: var(--accent-soft);
-      border-color: rgba(56, 189, 248, 0.4);
+      border-color: rgba(56, 189, 248, 0.45);
       color: #bae6fd;
+      font-weight: 600;
+    }
+    button.primary:hover:not(:disabled) {
+      background: rgba(56, 189, 248, 0.24);
     }
 
+    /* Run Context Banner */
+    .run-banner-wrap {
+      background: var(--surface-3);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 22px;
+    }
+    .run-banner {
+      max-width: 1680px;
+      margin: 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px 20px;
+    }
+    .run-banner-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 260px;
+      flex: 1;
+    }
+    .run-banner-title-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .run-banner-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .run-banner-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .run-banner-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .stat-pill {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding: 6px 11px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-width: 84px;
+    }
+    .stat-pill .stat-k {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      font-weight: 700;
+    }
+    .stat-pill .stat-v {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* Accessible Tab Bar (modern-web-guidance: tabs) */
     .tabs {
       display: flex;
-      gap: 4px;
-      padding: 0 20px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      gap: 6px;
+      padding: 0 22px;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
     }
-    .tab-btn {
+    [role="tab"] {
+      position: relative;
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       background: transparent;
       border: none;
-      border-bottom: 2px solid transparent;
       border-radius: 0;
-      padding: 11px 14px;
+      padding: 12px 14px;
       color: var(--text-muted);
       font-weight: 600;
       font-size: 13px;
     }
-    .tab-btn:hover {
+    [role="tab"]:hover {
       background: transparent;
       color: var(--text);
     }
-    .tab-btn.active {
+    [role="tab"][aria-selected="true"] {
       color: var(--accent);
-      border-bottom-color: var(--accent);
+    }
+    [role="tab"][aria-selected="true"]::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0;
+      border-block-end: 3px solid var(--accent);
+    }
+    .tab-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    [role="tab"][aria-selected="true"] .tab-count {
+      background: var(--accent-soft);
+      color: #bae6fd;
+      border-color: rgba(56, 189, 248, 0.35);
     }
 
-    .container {
-      padding: 16px 20px 36px;
+    /* Tab Panels: keep panel element itself unstyled (no padding/border/margin/bg) for hidden="until-found" */
+    [role="tabpanel"][hidden="until-found"] {
+      content-visibility: hidden;
+    }
+    .tab-panel-inner {
+      padding: 16px 22px 40px;
       max-width: 1680px;
       margin: 0 auto;
     }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
 
+    /* Callouts & Banners inside tabs */
+    .notice-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 14px;
+      border-radius: 9px;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      background: rgba(56, 189, 248, 0.08);
+      margin-bottom: 14px;
+      font-size: 13px;
+      color: #e2e8f0;
+    }
+    .notice-bar p { margin: 0; }
+
+    /* Filters */
     .filter-bar {
       display: flex;
       flex-wrap: wrap;
@@ -170,16 +300,17 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
-      min-width: 135px;
+      min-width: 148px;
     }
     .filter-group label {
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
-      font-weight: 600;
+      font-weight: 700;
     }
 
+    /* Badges */
     .badge {
       display: inline-flex;
       align-items: center;
@@ -188,7 +319,6 @@
       border-radius: 999px;
       font-size: 11px;
       font-weight: 600;
-      font-family: var(--mono);
       border: 1px solid transparent;
       white-space: nowrap;
     }
@@ -197,12 +327,13 @@
     .badge-red { background: var(--red-soft); color: #fca5a5; border-color: rgba(239,68,68,0.35); }
     .badge-rose { background: var(--rose-soft); color: #fda4af; border-color: rgba(251,113,133,0.35); }
     .badge-blue { background: var(--accent-soft); color: #7dd3fc; border-color: rgba(56,189,248,0.35); }
+    .badge-violet { background: var(--violet-soft); color: #ddd6fe; border-color: rgba(167,139,250,0.35); }
     .badge-slate { background: rgba(148,163,184,0.14); color: #cbd5e1; border-color: rgba(148,163,184,0.28); }
 
     /* Tab 1 Layout */
     .split-layout {
       display: grid;
-      grid-template-columns: 360px 1fr;
+      grid-template-columns: 370px 1fr;
       gap: 16px;
       align-items: start;
     }
@@ -218,23 +349,24 @@
     }
     .panel-header {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
+      padding: 11px 14px;
       background: var(--surface-3);
       border-bottom: 1px solid var(--border);
-      font-weight: 600;
+      font-weight: 700;
       font-size: 13px;
     }
     .panel-body { padding: 14px; }
 
     .decision-list {
-      max-height: 72vh;
+      max-height: 74vh;
       overflow-y: auto;
     }
     .decision-item {
-      padding: 10px 12px;
+      padding: 11px 13px;
       border-bottom: 1px solid var(--border);
       cursor: pointer;
       transition: background 0.1s ease;
@@ -243,7 +375,7 @@
     .decision-item.selected {
       background: rgba(56, 189, 248, 0.12);
       border-left: 3px solid var(--accent);
-      padding-left: 9px;
+      padding-left: 10px;
     }
     .decision-item-top {
       display: flex;
@@ -252,13 +384,22 @@
       gap: 8px;
       margin-bottom: 4px;
     }
+    .decision-item-title {
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--text);
+    }
+    .decision-item-sub {
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-bottom: 3px;
+    }
     .decision-item-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--text-muted);
-      font-family: var(--mono);
     }
 
     .pager {
@@ -274,12 +415,12 @@
 
     .inspection-strip {
       display: grid;
-      grid-template-columns: 280px 260px 1fr;
-      gap: 16px;
+      grid-template-columns: 270px 270px 1fr;
+      gap: 14px;
       margin-bottom: 18px;
       align-items: start;
     }
-    @media (max-width: 1280px) {
+    @media (max-width: 1320px) {
       .inspection-strip { grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 780px) {
@@ -289,7 +430,7 @@
     .card-box {
       background: var(--surface-3);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 9px;
       padding: 12px;
     }
     .card-label {
@@ -302,15 +443,22 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
+    }
+    .card-help {
+      margin-top: 8px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      text-align: center;
     }
 
     .board-frame-img {
       width: 100%;
-      max-width: 256px;
+      max-width: 244px;
       aspect-ratio: 1 / 1;
       display: block;
       margin: 0 auto;
-      border-radius: 6px;
+      border-radius: 7px;
       border: 1px solid var(--border-strong);
       background: #020617;
       object-fit: contain;
@@ -320,39 +468,41 @@
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 6px;
-      max-width: 236px;
+      max-width: 244px;
       margin: 0 auto;
     }
     .oracle-cell {
       aspect-ratio: 1 / 1;
-      border-radius: 6px;
+      border-radius: 7px;
       border: 1px solid var(--border);
       background: var(--surface-2);
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      font-family: var(--mono);
       position: relative;
+      padding: 4px;
     }
     .oracle-cell.optimal {
       border-color: var(--green);
       background: rgba(16, 185, 129, 0.16);
-      box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.4);
+      box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.45);
     }
-    .oracle-cell.mark-x { color: #60a5fa; font-size: 22px; font-weight: 800; }
-    .oracle-cell.mark-o { color: #f87171; font-size: 22px; font-weight: 800; }
+    .oracle-cell.mark-x { color: #60a5fa; font-size: 22px; font-weight: 800; font-family: var(--mono); }
+    .oracle-cell.mark-o { color: #f87171; font-size: 22px; font-weight: 800; font-family: var(--mono); }
     .oracle-cell .cell-coord {
       font-size: 9px;
+      font-family: var(--mono);
       color: var(--text-dim);
       position: absolute;
       top: 3px;
-      left: 4px;
+      left: 5px;
     }
     .oracle-cell .cell-val {
-      font-size: 15px;
+      font-size: 12px;
       font-weight: 700;
-      margin-top: 6px;
+      margin-top: 8px;
+      letter-spacing: -0.01em;
     }
     .oracle-cell .cell-val.v-pos { color: #34d399; }
     .oracle-cell .cell-val.v-zero { color: #e2e8f0; }
@@ -370,8 +520,27 @@
       color: #cbd5e1;
       white-space: pre-wrap;
       word-break: break-word;
-      max-height: 240px;
+      max-height: 244px;
       overflow-y: auto;
+    }
+
+    .section-heading {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0 10px;
+    }
+    .section-heading h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .section-heading span {
+      font-size: 12px;
+      color: var(--text-muted);
     }
 
     .matrix-grid {
@@ -387,13 +556,18 @@
     }
 
     .matrix-card {
-      background: var(--surface-3);
+      background: var(--surface-card);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 9px;
       padding: 12px;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 9px;
+      transition: border-color 0.12s ease;
+    }
+    .matrix-card.selected-card {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35);
     }
     .matrix-card.status-optimal { border-top: 3px solid var(--green); }
     .matrix-card.status-suboptimal { border-top: 3px solid var(--amber); }
@@ -407,11 +581,16 @@
       gap: 8px;
     }
     .row-title {
-      font-family: var(--mono);
       font-weight: 700;
-      font-size: 13px;
+      font-size: 14px;
+      color: var(--text);
+      margin-bottom: 3px;
     }
     .row-sub {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
       font-size: 11px;
       color: var(--text-muted);
     }
@@ -419,21 +598,22 @@
     .kv-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px 10px;
+      gap: 7px 10px;
       font-size: 12px;
-      padding: 8px;
-      background: rgba(15, 23, 42, 0.65);
-      border: 1px solid rgba(40, 53, 72, 0.7);
-      border-radius: 6px;
+      padding: 8px 9px;
+      background: rgba(8, 13, 26, 0.55);
+      border: 1px solid rgba(37, 51, 73, 0.85);
+      border-radius: 7px;
     }
     .kv-item span.k {
       color: var(--text-dim);
       display: block;
       font-size: 10px;
       text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
     }
     .kv-item span.v {
-      font-family: var(--mono);
       font-weight: 600;
       color: var(--text);
     }
@@ -446,17 +626,19 @@
     }
     .prob-row {
       display: grid;
-      grid-template-columns: 44px 1fr 48px;
+      grid-template-columns: 96px 1fr 48px;
       align-items: center;
-      gap: 6px;
-      font-family: var(--mono);
-      font-size: 11px;
+      gap: 7px;
+      font-size: 11.5px;
     }
     .prob-key {
       color: var(--text-muted);
       display: flex;
       align-items: center;
-      gap: 3px;
+      gap: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .prob-key.chosen { color: var(--accent); font-weight: 700; }
     .prob-bar-bg {
@@ -475,39 +657,93 @@
     .prob-bar-fill.illegal { background: var(--rose); }
     .prob-pct {
       text-align: right;
+      font-family: var(--mono);
       color: var(--text-muted);
     }
 
-    /* Tab 2 Layout */
+    /* Tab 2 Accessible Responsive Table (modern-web-guidance: responsive-table) */
     .table-wrap {
-      overflow-x: auto;
-      max-height: 280px;
-      overflow-y: auto;
+      overflow: auto;
+      max-inline-size: 100%;
+      max-block-size: min(320px, 45vh);
+      container-type: inline-size;
     }
-    table {
+    table.episodes-table {
       width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 12.5px;
     }
-    th, td {
-      padding: 8px 10px;
+    table.episodes-table th,
+    table.episodes-table td {
+      padding: 8px 11px;
       text-align: left;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    th {
+    table.episodes-table thead {
       position: sticky;
-      top: 0;
+      inset-block-start: 0;
+      z-index: 2;
+    }
+    table.episodes-table thead th {
       background: var(--surface-3);
       color: var(--text-muted);
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      z-index: 2;
+      font-weight: 700;
+    }
+    table.episodes-table thead th:first-child {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 3;
+    }
+    table.episodes-table tbody th[scope="row"] {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 1;
+      background: var(--surface);
+      font-weight: 600;
     }
     tr.ep-row { cursor: pointer; }
-    tr.ep-row:hover { background: rgba(56, 189, 248, 0.07); }
-    tr.ep-row.selected { background: rgba(56, 189, 248, 0.15); }
+    tr.ep-row:hover td,
+    tr.ep-row:hover th[scope="row"] { background: #162238; }
+    tr.ep-row.selected td,
+    tr.ep-row.selected th[scope="row"] { background: #182b47; }
+
+    @container (width < 680px) {
+      table.episodes-table,
+      table.episodes-table thead,
+      table.episodes-table tbody,
+      table.episodes-table tr,
+      table.episodes-table th,
+      table.episodes-table td {
+        display: block;
+      }
+      table.episodes-table thead {
+        display: none;
+      }
+      table.episodes-table tr.ep-row {
+        margin-block-end: 10px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      table.episodes-table tbody th[scope="row"] {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 2;
+        background: var(--surface-3);
+        border-bottom: 1px solid var(--border);
+      }
+      table.episodes-table td::before {
+        content: attr(data-label) ": ";
+        font-weight: 700;
+        color: var(--text-muted);
+        margin-right: 6px;
+      }
+    }
 
     .scrubber-controls {
       display: flex;
@@ -518,16 +754,41 @@
       background: var(--surface-3);
       border: 1px solid var(--border);
       border-radius: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
     }
     .scrubber-controls input[type="range"] {
       flex: 1;
       min-width: 160px;
       accent-color: var(--accent);
     }
+    .turn-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .turn-chip {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface-3);
+      color: var(--text-muted);
+    }
+    .turn-chip.chip-optimal { border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; }
+    .turn-chip.chip-suboptimal { border-color: rgba(245, 158, 11, 0.45); color: #fcd34d; }
+    .turn-chip.chip-illegal { border-color: rgba(251, 113, 133, 0.5); color: #fda4af; }
+    .turn-chip.chip-invalid { border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; }
+    .turn-chip.active {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: #e0f2fe;
+      font-weight: 700;
+    }
+
     .step-layout {
       display: grid;
-      grid-template-columns: 320px 1fr;
+      grid-template-columns: 310px 1fr;
       gap: 16px;
       align-items: start;
     }
@@ -536,10 +797,17 @@
     }
 
     .empty-state {
-      padding: 28px 18px;
+      padding: 30px 18px;
       text-align: center;
       color: var(--text-muted);
       font-size: 13px;
+    }
+    .empty-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
     }
     .mono { font-family: var(--mono); }
     .muted { color: var(--text-muted); }
@@ -550,15 +818,15 @@
       align-items: center;
     }
     .pill-btn {
-      font-size: 11px;
-      padding: 3px 9px;
+      font-size: 11.5px;
+      padding: 4px 10px;
       border-radius: 999px;
-      font-family: var(--mono);
     }
     .pill-btn.active {
       background: var(--accent-soft);
       border-color: var(--accent);
       color: #bae6fd;
+      font-weight: 600;
     }
   </style>
 </head>
@@ -566,150 +834,182 @@
   <header class="topbar">
     <div class="brand">
       <h1>dm-bench Trace Viewer</h1>
-      <span>Tic-Tac-Toe · T1–T6 Inspector</span>
+      <span class="brand-sub">Tic-Tac-Toe AI Decision Explorer</span>
     </div>
     <div class="run-controls">
-      <label for="run-select">Run</label>
+      <label for="run-select">Saved Run</label>
       <select id="run-select" aria-label="Experiment run selector"></select>
       <button id="refresh-runs-btn" type="button">Refresh</button>
     </div>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button class="tab-btn active" data-tab="offline" role="tab" aria-selected="true">
-      Offline Decision Inspector &amp; 9-Way Matrix
+  <section id="run-overview-banner" class="run-banner-wrap" aria-label="Selected benchmark run overview">
+    <div class="run-banner">
+      <div class="run-banner-info">
+        <div class="run-banner-title-row">
+          <span class="run-banner-title">Loading saved benchmark runs…</span>
+        </div>
+        <div class="run-banner-desc">Choose a run above to explore how each AI model read the board and picked its moves.</div>
+      </div>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Benchmark views">
+    <button type="button" role="tab" class="tab-btn" id="tab-btn-offline" data-tab="offline" aria-selected="true" tabindex="0">
+      Board Puzzles · Compare Models
+      <span id="tab-offline-count" class="tab-count">0</span>
     </button>
-    <button class="tab-btn" data-tab="episodes" role="tab" aria-selected="false">
-      Closed-Loop Episode Scrubber (T6)
+    <button type="button" role="tab" class="tab-btn" id="tab-btn-episodes" data-tab="episodes" aria-selected="false" tabindex="-1">
+      Full Games · Turn-by-Turn Replay
+      <span id="tab-episodes-count" class="tab-count">0</span>
     </button>
   </nav>
 
-  <main class="container">
-    <!-- TAB 1: Offline Decision Inspector & 9-Way Matrix -->
-    <section id="tab-offline" class="tab-panel active">
-      <div class="filter-bar">
-        <div class="filter-group">
-          <label for="f-row">Row</label>
-          <select id="f-row"><option value="">All rows</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="f-cond">Condition</label>
-          <select id="f-cond"><option value="">All conditions</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="f-tac">Tactical Category</label>
-          <select id="f-tac"><option value="">All categories</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="f-fail">Failure Filter</label>
-          <select id="f-fail">
-            <option value="all">All decisions</option>
-            <option value="failures">All failures</option>
-            <option value="illegal">Illegal move</option>
-            <option value="suboptimal">Suboptimal legal</option>
-            <option value="invalid">Invalid / API error</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label for="f-render">Render Variant</label>
-          <select id="f-render"><option value="">All renders</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="f-text">Text Format</label>
-          <select id="f-text"><option value="">All formats</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="f-mode">Action Mode</label>
-          <select id="f-mode"><option value="">All modes</option></select>
-        </div>
-        <button id="f-reset" type="button">Reset Filters</button>
-      </div>
-
-      <div class="split-layout">
-        <div class="panel">
-          <div class="panel-header">
-            <span>Decisions</span>
-            <span id="decisions-count" class="mono muted">0</span>
-          </div>
-          <div id="decision-list" class="decision-list">
-            <div class="empty-state">Select a run to inspect decisions.</div>
-          </div>
-          <div class="pager">
-            <button id="dec-prev" type="button">Prev</button>
-            <span id="dec-page-info" class="mono">0 / 0</span>
-            <button id="dec-next" type="button">Next</button>
-          </div>
+  <main>
+    <!-- TAB 1: Board Puzzles & Model Comparison -->
+    <section id="tab-offline" role="tabpanel" aria-labelledby="tab-btn-offline">
+      <div class="tab-panel-inner">
+        <div id="offline-run-notice" class="notice-bar" hidden>
+          <p>This run recorded full start-to-finish games. Each entry below is an individual turn from a game — switch to <strong>Full Games · Turn-by-Turn Replay</strong> to watch complete matches from opening move to final whistle.</p>
+          <button type="button" class="primary" id="jump-to-games-btn">Open Full Games Replay</button>
         </div>
 
-        <div class="panel">
-          <div class="panel-header">
-            <span id="matrix-title">Position Detail &amp; 9-Way Matrix</span>
-            <div id="matrix-badges" class="variant-pills"></div>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label for="f-row">AI Model &amp; Input</label>
+            <select id="f-row"><option value="">All setups</option></select>
           </div>
-          <div id="matrix-detail" class="panel-body">
-            <div class="empty-state">Click a decision on the left to inspect its 512×512 frame, oracle minimax overlay, text payload, and 9-way model matrix.</div>
+          <div class="filter-group">
+            <label for="f-cond">Model Group</label>
+            <select id="f-cond"><option value="">All groups</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="f-tac">Board Situation</label>
+            <select id="f-tac"><option value="">All situations</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="f-fail">Move Result</label>
+            <select id="f-fail">
+              <option value="all">All moves</option>
+              <option value="failures">Mistakes, illegal &amp; errors only</option>
+              <option value="illegal">Illegal move (taken square)</option>
+              <option value="suboptimal">Legal but suboptimal</option>
+              <option value="invalid">Invalid / API error</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="f-render">Image Style</label>
+            <select id="f-render"><option value="">All styles</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="f-text">Text Prompt Style</label>
+            <select id="f-text"><option value="">All formats</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="f-mode">Allowed Choices</label>
+            <select id="f-mode"><option value="">All choices</option></select>
+          </div>
+          <button id="f-reset" type="button">Reset Filters</button>
+        </div>
+
+        <div class="split-layout">
+          <div class="panel">
+            <div class="panel-header">
+              <span>Saved Moves</span>
+              <span id="decisions-count" class="mono muted">0</span>
+            </div>
+            <div id="decision-list" class="decision-list">
+              <div class="empty-state">Select a run to inspect saved moves.</div>
+            </div>
+            <div class="pager">
+              <button id="dec-prev" type="button">Prev</button>
+              <span id="dec-page-info" class="mono">0 / 0</span>
+              <button id="dec-next" type="button">Next</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <span id="matrix-title">Board Breakdown &amp; Model Comparison</span>
+              <div id="matrix-badges" class="variant-pills"></div>
+            </div>
+            <div id="matrix-detail" class="panel-body">
+              <div class="empty-state">Click a saved move on the left to see the board image, the perfect-solver best moves, the text prompt, and how every AI setup answered.</div>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- TAB 2: Closed-Loop Episode Scrubber (T6) -->
-    <section id="tab-episodes" class="tab-panel">
-      <div class="filter-bar">
-        <div class="filter-group">
-          <label for="ep-opp">Opponent</label>
-          <select id="ep-opp"><option value="">All opponents</option></select>
+    <!-- TAB 2: Full Games Turn-by-Turn Replay -->
+    <section id="tab-episodes" role="tabpanel" aria-labelledby="tab-btn-episodes" hidden="until-found">
+      <div class="tab-panel-inner">
+        <div id="episodes-run-guide" class="notice-bar" hidden>
+          <p>The currently selected run tested saved single-board puzzles rather than full start-to-finish games.</p>
+          <div class="variant-pills">
+            <button type="button" id="guide-to-puzzles-btn">Back to Board Puzzles</button>
+            <button type="button" class="primary" id="guide-to-t6-btn" hidden>Switch to Full Games Run</button>
+          </div>
         </div>
-        <div class="filter-group">
-          <label for="ep-row">Row</label>
-          <select id="ep-row"><option value="">All rows</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="ep-outcome">Outcome</label>
-          <select id="ep-outcome"><option value="">All outcomes</option></select>
-        </div>
-        <div class="filter-group">
-          <label for="ep-mode">Action Mode</label>
-          <select id="ep-mode"><option value="">All modes</option></select>
-        </div>
-        <button id="ep-reset" type="button">Reset Filters</button>
-      </div>
 
-      <div class="panel" style="margin-bottom: 16px;">
-        <div class="panel-header">
-          <span>T6 Episodes</span>
-          <span id="episodes-count" class="mono muted">0</span>
+        <div class="filter-bar">
+          <div class="filter-group">
+            <label for="ep-opp">Opponent</label>
+            <select id="ep-opp"><option value="">All opponents</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="ep-row">AI Model &amp; Input</label>
+            <select id="ep-row"><option value="">All setups</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="ep-outcome">Game Result</label>
+            <select id="ep-outcome"><option value="">All results</option></select>
+          </div>
+          <div class="filter-group">
+            <label for="ep-mode">Allowed Choices</label>
+            <select id="ep-mode"><option value="">All choices</option></select>
+          </div>
+          <button id="ep-reset" type="button">Reset Filters</button>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Episode ID</th>
-                <th>Row</th>
-                <th>Opponent</th>
-                <th>Mode</th>
-                <th>Mark / Order</th>
-                <th>Outcome</th>
-                <th>Plies</th>
-                <th>Illegal</th>
-                <th>Cost (USD)</th>
-                <th>Mean Regret</th>
-              </tr>
-            </thead>
-            <tbody id="episodes-tbody">
-              <tr><td colspan="10" class="empty-state">No episodes loaded.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
 
-      <div class="panel">
-        <div class="panel-header">
-          <span id="replay-title">Episode Replay Scrubber</span>
-          <span id="replay-summary-badges" class="variant-pills"></span>
+        <div class="panel" style="margin-bottom: 16px;">
+          <div class="panel-header">
+            <span>Completed Games</span>
+            <div id="episodes-summary-pills" class="variant-pills">
+              <span id="episodes-count" class="mono muted">0</span>
+            </div>
+          </div>
+          <div tabindex="0" role="region" aria-label="Completed Tic-Tac-Toe games" class="table-wrap">
+            <table class="episodes-table">
+              <thead>
+                <tr>
+                  <th scope="col">Game</th>
+                  <th scope="col">AI Model &amp; Input</th>
+                  <th scope="col">Opponent</th>
+                  <th scope="col">Allowed Choices</th>
+                  <th scope="col">Plays As</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">Total Moves</th>
+                  <th scope="col">Illegal Picks</th>
+                  <th scope="col">Est. Cost</th>
+                  <th scope="col">Avg Mistake Penalty</th>
+                </tr>
+              </thead>
+              <tbody id="episodes-tbody">
+                <tr><td colspan="10" class="empty-state">No games loaded.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div id="replay-body" class="panel-body">
-          <div class="empty-state">Select a T6 episode above to scrub through turns step by step (use ← / → arrow keys).</div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span id="replay-title">Game Replay — Move by Move</span>
+            <span id="replay-summary-badges" class="variant-pills"></span>
+          </div>
+          <div id="replay-body" class="panel-body">
+            <div class="empty-state">Select a completed game above to step through its turns (use ← / → arrow keys).</div>
+          </div>
         </div>
       </div>
     </section>
@@ -717,6 +1017,121 @@
 
   <script>
     const CELL_KEYS = ["R1C1", "R1C2", "R1C3", "R2C1", "R2C2", "R2C3", "R3C1", "R3C2", "R3C3"];
+
+    const CELL_NAMES = {
+      R1C1: "Top-Left",
+      R1C2: "Top-Mid",
+      R1C3: "Top-Right",
+      R2C1: "Mid-Left",
+      R2C2: "Center",
+      R2C3: "Mid-Right",
+      R3C1: "Bot-Left",
+      R3C2: "Bot-Mid",
+      R3C3: "Bot-Right",
+    };
+
+    const EXPERIMENT_META = {
+      M0_smoke: {
+        title: "Quick Smoke Check",
+        kind: "puzzles",
+        desc: "Verifies board image rendering, text prompts, and every AI model adapter end to end.",
+      },
+      T1_T2: {
+        title: "Core Board Puzzles (All 9 Setups)",
+        kind: "puzzles",
+        desc: "Compares TypeSafe Jev, Gemini Decision 1, and Gemini 4 Hydrogen side by side using Image Only, Text Only, and Image + Text.",
+      },
+      T3: {
+        title: "Visual Stress Tests",
+        kind: "puzzles",
+        desc: "Tests image-reading setups under tougher board styles: row/column margins, dark low-contrast colors, thin fonts, and tilt/blur.",
+      },
+      T4: {
+        title: "Empty-Squares-Only vs All 9 Squares",
+        kind: "puzzles",
+        desc: "Measures whether restricting choices to empty squares stops illegal moves or still harms move quality.",
+      },
+      T5: {
+        title: "Text Prompt Format Variations",
+        kind: "puzzles",
+        desc: "Tests text-reading models across Standard JSON, ASCII Grid, Coordinate List, and JSON + Move History formats.",
+      },
+      T6: {
+        title: "Full Games vs Random & Perfect AI",
+        kind: "games",
+        desc: "Models play complete Tic-Tac-Toe matches from start to finish against a Random player and an unbeatable Perfect AI.",
+      },
+    };
+
+    const ROW_META = {
+      A_jev_V: { model: "TypeSafe Jev", familyLabel: "Decision Model", modality: "Image Only", modBadgeCls: "badge-blue", modelOrder: 0, modOrder: 0 },
+      B_jev_T: { model: "TypeSafe Jev", familyLabel: "Decision Model", modality: "Text Only", modBadgeCls: "badge-violet", modelOrder: 0, modOrder: 1 },
+      D_jev_VT: { model: "TypeSafe Jev", familyLabel: "Decision Model", modality: "Image + Text", modBadgeCls: "badge-green", modelOrder: 0, modOrder: 2 },
+      A_gdec_V: { model: "Gemini Decision 1", familyLabel: "Decision Model", modality: "Image Only", modBadgeCls: "badge-blue", modelOrder: 1, modOrder: 0 },
+      B_gdec_T: { model: "Gemini Decision 1", familyLabel: "Decision Model", modality: "Text Only", modBadgeCls: "badge-violet", modelOrder: 1, modOrder: 1 },
+      D_gdec_VT: { model: "Gemini Decision 1", familyLabel: "Decision Model", modality: "Image + Text", modBadgeCls: "badge-green", modelOrder: 1, modOrder: 2 },
+      C_ghyd_V: { model: "Gemini 4 Hydrogen", familyLabel: "General VLM", modality: "Image Only", modBadgeCls: "badge-blue", modelOrder: 2, modOrder: 0 },
+      F_ghyd_T: { model: "Gemini 4 Hydrogen", familyLabel: "General LLM", modality: "Text Only", modBadgeCls: "badge-violet", modelOrder: 2, modOrder: 1 },
+      E_ghyd_VT: { model: "Gemini 4 Hydrogen", familyLabel: "General VLM", modality: "Image + Text", modBadgeCls: "badge-green", modelOrder: 2, modOrder: 2 },
+    };
+
+    const CONDITION_LABELS = {
+      "A-DM-V": "Decision Model · Image Only",
+      "B-DM-T": "Decision Model · Text Only",
+      "D-DM-VT": "Decision Model · Image + Text",
+      "C-VLM-V": "General VLM · Image Only",
+      "E-VLM-VT": "General VLM · Image + Text",
+      "F-LLM-T": "General LLM · Text Only",
+    };
+
+    const TACTICAL_LABELS = {
+      immediate_win: "Win in 1 Move",
+      forced_block: "Must Block Opponent",
+      fork_create: "Create Winning Trap (Fork)",
+      fork_defend: "Defend Opponent Trap",
+      forced_draw: "Balanced / Tie Board",
+      losing_position: "Already Losing Position",
+      opening: "Opening Board",
+    };
+
+    const RENDER_LABELS = {
+      clean_default: "Clean Standard",
+      labeled_margins: "Row/Col Labels",
+      dark_low_contrast: "Dark Low-Contrast",
+      thin_alt_font: "Thin Font",
+      tilt_blur: "Tilted & Blurred",
+    };
+
+    const FORMAT_LABELS = {
+      json_canonical: "Standard JSON",
+      ascii_grid: "ASCII Grid",
+      coord_list: "Coordinate List",
+      json_with_history: "JSON + Move History",
+    };
+
+    const MODE_LABELS = {
+      all_9: "All 9 Squares Offered",
+      legal_only: "Empty Squares Only",
+    };
+
+    const OPPONENT_LABELS = {
+      random: "Random Mover",
+      minimax: "Perfect AI (Unbeatable)",
+    };
+
+    const OUTCOME_META = {
+      win: { label: "Won", cls: "badge-green" },
+      draw: { label: "Tie Game", cls: "badge-blue" },
+      loss_by_board: { label: "Lost (Outplayed)", cls: "badge-amber" },
+      loss_by_illegal_move: { label: "Lost (Picked Taken Square)", cls: "badge-rose" },
+    };
+
+    const TERMINATION_LABELS = {
+      win: "Three in a row",
+      draw: "Board full (tie)",
+      illegal_forfeit: "Picked an already taken square",
+      invalid_response: "Invalid API output",
+    };
 
     const state = {
       runs: [],
@@ -728,7 +1143,7 @@
       decisionsLimit: 40,
       selectedDecisionKey: null,
       currentMatrix: null,
-      matrixVariantFilter: { render_variant: null, text_format: null, action_mode: null },
+      matrixVariantFilter: { render_variant: null, text_format: null, action_mode: null, step_idx: null },
       episodes: [],
       episodesTotal: 0,
       selectedEpisodeKey: null,
@@ -753,7 +1168,8 @@
 
     function fmtCost(val) {
       if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
-      return `$${Number(val).toFixed(5)}`;
+      const n = Number(val);
+      return n > 0 && n < 0.001 ? `$${n.toFixed(5)}` : `$${n.toFixed(3)}`;
     }
 
     function fmtNum(val, digits = 3) {
@@ -761,26 +1177,148 @@
       return Number(val).toFixed(digits);
     }
 
+    function fmtPct(val, digits = 1) {
+      if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
+      return `${(Number(val) * 100).toFixed(digits)}%`;
+    }
+
+    function fmtTimestamp(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      return d.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: "UTC",
+      }) + " UTC";
+    }
+
+    function getRowMeta(rowId) {
+      if (rowId && ROW_META[rowId]) {
+        return { ...ROW_META[rowId], rowId };
+      }
+      return {
+        rowId: rowId || "unknown",
+        model: rowId || "Unknown Model",
+        familyLabel: "AI Setup",
+        modality: rowId && rowId.endsWith("_VT") ? "Image + Text" : (rowId && rowId.endsWith("_T") ? "Text Only" : "Image Only"),
+        modBadgeCls: "badge-slate",
+        modelOrder: 99,
+        modOrder: 99,
+      };
+    }
+
+    function fmtRowOption(rowId) {
+      const m = getRowMeta(rowId);
+      return `${m.model} · ${m.modality} (${rowId})`;
+    }
+
+    function fmtCondition(code) {
+      return CONDITION_LABELS[code] || code || "—";
+    }
+
+    function fmtTactical(cat) {
+      if (!cat) return "—";
+      return TACTICAL_LABELS[cat] || cat.replaceAll("_", " ");
+    }
+
+    function fmtRender(rv) {
+      if (!rv) return "None";
+      return RENDER_LABELS[rv] || rv.replaceAll("_", " ");
+    }
+
+    function fmtTextFormat(tf) {
+      if (!tf) return "None";
+      return FORMAT_LABELS[tf] || tf.replaceAll("_", " ");
+    }
+
+    function fmtMode(am) {
+      if (!am) return "—";
+      return MODE_LABELS[am] || am.replaceAll("_", " ");
+    }
+
+    function fmtOpponent(opp) {
+      if (!opp) return "—";
+      return OPPONENT_LABELS[opp] || opp;
+    }
+
+    function fmtSquare(code, short = false) {
+      if (!code) return "None";
+      const name = CELL_NAMES[code];
+      if (!name) return String(code);
+      return short ? `${name} (${code})` : `${name} (${code})`;
+    }
+
+    function fmtStateOutcome(val, player) {
+      const p = player || "Player";
+      if (val === 1 || val === "+1") return `${p} Can Force a Win`;
+      if (val === 0 || val === "0") return "Tie with Best Play";
+      if (val === -1 || val === "-1") return `${p} Losing vs Perfect Play`;
+      return "Unknown";
+    }
+
+    function fmtTermination(reason) {
+      if (!reason) return "—";
+      return TERMINATION_LABELS[reason] || reason.replaceAll("_", " ");
+    }
+
     function statusInfo(row) {
       if (!row.response_valid) {
-        return { cls: "status-invalid", badgeCls: "badge-red", label: row.error_type ? `INVALID (${row.error_type})` : "INVALID" };
+        return {
+          cls: "status-invalid",
+          badgeCls: "badge-red",
+          shortIcon: "!",
+          label: row.error_type ? `Error: ${row.error_type}` : "Invalid Output",
+        };
       }
       if (!row.action_is_legal) {
-        return { cls: "status-illegal", badgeCls: "badge-rose", label: "ILLEGAL FORFEIT" };
+        return {
+          cls: "status-illegal",
+          badgeCls: "badge-rose",
+          shortIcon: "✗",
+          label: "Illegal Move (Square Taken)",
+        };
       }
       if (row.action_is_optimal) {
-        return { cls: "status-optimal", badgeCls: "badge-green", label: "OPTIMAL" };
+        return {
+          cls: "status-optimal",
+          badgeCls: "badge-green",
+          shortIcon: "✓",
+          label: "Best Move",
+        };
       }
-      const regret = row.legal_regret !== null && row.legal_regret !== undefined ? ` (regret ${row.legal_regret})` : "";
-      return { cls: "status-suboptimal", badgeCls: "badge-amber", label: `SUBOPTIMAL${regret}` };
+      const regret = row.legal_regret;
+      if (regret !== null && regret !== undefined && Number(regret) >= 2) {
+        return {
+          cls: "status-suboptimal",
+          badgeCls: "badge-amber",
+          shortIcon: "▼",
+          label: "Blunder (Win → Loss)",
+        };
+      }
+      if (regret !== null && regret !== undefined && Number(regret) === 1) {
+        return {
+          cls: "status-suboptimal",
+          badgeCls: "badge-amber",
+          shortIcon: "~",
+          label: "Mistake (Gave Up Advantage)",
+        };
+      }
+      return {
+        cls: "status-suboptimal",
+        badgeCls: "badge-amber",
+        shortIcon: "~",
+        label: "Suboptimal Move",
+      };
     }
 
     function outcomeBadge(outcome) {
-      if (outcome === "win") return '<span class="badge badge-green">win</span>';
-      if (outcome === "draw") return '<span class="badge badge-blue">draw</span>';
-      if (outcome === "loss_by_board") return '<span class="badge badge-amber">loss_by_board</span>';
-      if (outcome === "loss_by_illegal_move") return '<span class="badge badge-rose">loss_by_illegal_move</span>';
-      return `<span class="badge badge-slate">${esc(outcome || "unknown")}</span>`;
+      const m = OUTCOME_META[outcome];
+      if (m) return `<span class="badge ${m.cls}">${esc(m.label)}</span>`;
+      return `<span class="badge badge-slate">${esc(outcome || "Unknown")}</span>`;
     }
 
     function renderFallbackSvgBoard(board, playerToMove) {
@@ -801,7 +1339,7 @@
       return `
         <svg viewBox="0 0 336 336" class="board-frame-img" role="img" aria-label="Tic-Tac-Toe board">
           <rect width="336" height="336" fill="#0f172a"/>
-          <text x="168" y="34" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700" font-family="monospace">Player to move: ${esc(playerToMove || "?")}</text>
+          <text x="168" y="34" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="700" font-family="sans-serif">${esc(playerToMove || "?")}&#39;s Turn</text>
           <line x1="124" y1="62" x2="124" y2="326" stroke="#475569" stroke-width="4"/>
           <line x1="212" y1="62" x2="212" y2="326" stroke="#475569" stroke-width="4"/>
           <line x1="36" y1="150" x2="300" y2="150" stroke="#475569" stroke-width="4"/>
@@ -822,29 +1360,43 @@
             const isOpt = opts.has(key);
             if (cell === "X" || cell === "O") {
               const mCls = cell === "X" ? "mark-x" : "mark-o";
-              return `<div class="oracle-cell ${mCls}"><span class="cell-coord">${key}</span>${cell}</div>`;
+              return `<div class="oracle-cell ${mCls}" title="${esc(fmtSquare(key))}: Already occupied by ${esc(cell)}"><span class="cell-coord">${key}</span>${cell}</div>`;
             }
             const v = vals[key];
-            let valText = "·";
+            let valText = "—";
             let vCls = "";
+            let titleText = fmtSquare(key);
             if (v !== undefined && v !== null) {
-              valText = v > 0 ? `+${v}` : `${v}`;
-              vCls = v > 0 ? "v-pos" : (v < 0 ? "v-neg" : "v-zero");
+              const prefix = isOpt ? "★ " : "";
+              if (v > 0) {
+                valText = `${prefix}Win`;
+                vCls = "v-pos";
+                titleText += " — Perfect play leads to a win (+1)";
+              } else if (v < 0) {
+                valText = `${prefix}Loss`;
+                vCls = "v-neg";
+                titleText += " — Opponent can force a win (-1)";
+              } else {
+                valText = `${prefix}Tie`;
+                vCls = "v-zero";
+                titleText += " — Best outcome from here is a tie (0)";
+              }
             }
             return `
-              <div class="oracle-cell ${isOpt ? "optimal" : ""}">
+              <div class="oracle-cell ${isOpt ? "optimal" : ""}" title="${esc(titleText)}">
                 <span class="cell-coord">${key}</span>
                 <span class="cell-val ${vCls}">${valText}</span>
               </div>
             `;
           }).join("")}
         </div>
+        <div class="card-help">Green ★ squares lead to the best possible result from this board.</div>
       `;
     }
 
     function renderProbBars(probs, optimalActions, legalActions, chosenAction) {
       if (!probs) {
-        return '<div class="muted" style="font-size:12px;">No probability vector (generative / unavailable)</div>';
+        return '<div class="muted" style="font-size:12px;">Single-choice output only (general LLM/VLM does not return per-square probabilities).</div>';
       }
       const optSet = new Set(optimalActions || []);
       const legalSet = new Set(legalActions || []);
@@ -857,9 +1409,11 @@
             const isOpt = optSet.has(key);
             const isIllegal = legalSet.size > 0 && !legalSet.has(key);
             const fillCls = isOpt ? "opt" : (isIllegal ? "illegal" : "");
+            const shortName = CELL_NAMES[key] || key;
+            const tag = isOpt ? "Best" : (isIllegal ? "Taken" : "Empty");
             return `
-              <div class="prob-row">
-                <span class="prob-key ${isChosen ? "chosen" : ""}">${isChosen ? "▶" : " "} ${key}</span>
+              <div class="prob-row" title="${esc(fmtSquare(key))} · ${tag} · ${(pct).toFixed(1)}%">
+                <span class="prob-key ${isChosen ? "chosen" : ""}">${isChosen ? "▶" : " "} ${esc(shortName)}</span>
                 <div class="prob-bar-bg">
                   <div class="prob-bar-fill ${fillCls}" style="width:${pct.toFixed(1)}%"></div>
                 </div>
@@ -871,15 +1425,18 @@
       `;
     }
 
-    function populateSelect(selectEl, values, defaultLabel) {
+    function populateSelect(selectEl, values, defaultLabel, labelFn) {
       const current = selectEl.value;
       const options = [`<option value="">${esc(defaultLabel)}</option>`];
       for (const v of values || []) {
-        options.push(`<option value="${esc(v)}">${esc(v)}</option>`);
+        const display = labelFn ? labelFn(v) : v;
+        options.push(`<option value="${esc(v)}">${esc(display)}</option>`);
       }
       selectEl.innerHTML = options.join("");
       if (values && values.includes(current)) {
         selectEl.value = current;
+      } else {
+        selectEl.value = "";
       }
     }
 
@@ -892,6 +1449,94 @@
       return res.json();
     }
 
+    function switchTab(nextTab, { focus = false } = {}) {
+      state.activeTab = nextTab === "episodes" ? "episodes" : "offline";
+      const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+      for (const btn of tabs) {
+        const active = btn.dataset.tab === state.activeTab;
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+        btn.setAttribute("tabindex", active ? "0" : "-1");
+        if (focus && active) btn.focus();
+      }
+      const offlinePanel = document.getElementById("tab-offline");
+      const episodesPanel = document.getElementById("tab-episodes");
+      if (state.activeTab === "offline") {
+        offlinePanel.hidden = false;
+        episodesPanel.hidden = "until-found";
+      } else {
+        episodesPanel.hidden = false;
+        offlinePanel.hidden = "until-found";
+      }
+    }
+
+    function renderRunBanner(run) {
+      const el = document.getElementById("run-overview-banner");
+      if (!run) {
+        el.innerHTML = `
+          <div class="run-banner">
+            <div class="run-banner-info">
+              <div class="run-banner-title">No saved runs found yet</div>
+              <div class="run-banner-desc">Run <code>bench smoke --mock</code> or <code>bench eval --mock --pilot</code> to generate inspectable traces.</div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const meta = EXPERIMENT_META[run.experiment_id] || {
+        title: run.experiment_id,
+        desc: "Saved evaluation run under experiments/results/.",
+      };
+      const isMock = Boolean(run.mock_mode);
+      const isPilot = Boolean(run.pilot_mode);
+      const created = fmtTimestamp(run.created_at_utc);
+      const modeBadge = isMock
+        ? '<span class="badge badge-amber" title="Stubbed model outputs for offline pipeline testing">Simulated Mock Data (No Live API Calls)</span>'
+        : '<span class="badge badge-green">Live Model APIs</span>';
+      const pilotBadge = isPilot ? '<span class="badge badge-slate">Pilot Sample</span>' : "";
+      const totalEp = Number(run.total_episodes ?? 0);
+      const totalDec = Number(run.total_decisions ?? 0);
+      const illegal = Number(run.illegal_decisions ?? 0);
+      const invalid = Number(run.invalid_decisions ?? 0);
+
+      document.getElementById("tab-offline-count").textContent = String(totalDec);
+      document.getElementById("tab-episodes-count").textContent = String(totalEp);
+
+      el.innerHTML = `
+        <div class="run-banner">
+          <div class="run-banner-info">
+            <div class="run-banner-title-row">
+              <span class="run-banner-title">${esc(meta.title)}</span>
+              ${modeBadge}
+              ${pilotBadge}
+              ${created ? `<span class="muted" style="font-size:12px;">${esc(created)}</span>` : ""}
+            </div>
+            <div class="run-banner-desc">
+              ${esc(meta.desc)}
+              ${isMock ? " <em>(Spent figure shows estimated live API cost equivalent.)</em>" : ""}
+            </div>
+          </div>
+          <div class="run-banner-stats">
+            <div class="stat-pill"><span class="stat-k">Moves Logged</span><span class="stat-v">${totalDec}</span></div>
+            ${totalEp > 0 ? `<div class="stat-pill"><span class="stat-k">Full Games</span><span class="stat-v">${totalEp}</span></div>` : ""}
+            <div class="stat-pill"><span class="stat-k">Illegal Picks</span><span class="stat-v">${illegal}</span></div>
+            ${invalid > 0 ? `<div class="stat-pill"><span class="stat-k">Invalid API</span><span class="stat-v">${invalid}</span></div>` : ""}
+            <div class="stat-pill"><span class="stat-k">${isMock ? "Est. Live Cost" : "API Spent"}</span><span class="stat-v">${fmtCost(run.total_spent_usd)}</span></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function formatRunOptionLabel(r) {
+      const meta = EXPERIMENT_META[r.experiment_id] || { title: r.experiment_id };
+      const tag = r.mock_mode ? "Mock Dry-Run" : "Live API";
+      const epCount = Number(r.total_episodes ?? 0);
+      const decCount = Number(r.total_decisions ?? 0);
+      const scale = epCount > 0 ? `${epCount} games (${decCount} turns)` : `${decCount} moves`;
+      const ts = fmtTimestamp(r.created_at_utc);
+      return `[${tag}] ${meta.title} · ${scale}${ts ? " · " + ts : ""}`;
+    }
+
     async function loadRuns() {
       const data = await fetchJson("/api/runs");
       state.runs = data.runs || [];
@@ -902,24 +1547,62 @@
         renderEmptyRuns();
         return;
       }
-      select.innerHTML = state.runs.map((r, idx) => {
-        const label = `${r.experiment_id} / ${r.run_id} · ${r.status || "unknown"} · ${r.total_decisions ?? 0} dec / ${r.total_episodes ?? 0} ep · $${Number(r.total_spent_usd ?? 0).toFixed(3)}`;
-        return `<option value="${idx}">${esc(label)}</option>`;
-      }).join("");
 
-      const preferredIdx = state.selectedRun
-        ? state.runs.findIndex((r) => r.experiment_id === state.selectedRun.experiment_id && r.run_id === state.selectedRun.run_id)
-        : 0;
-      const idx = preferredIdx >= 0 ? preferredIdx : 0;
+      const puzzleRuns = [];
+      const gameRuns = [];
+      state.runs.forEach((r, idx) => {
+        if ((r.total_episodes ?? 0) > 0) gameRuns.push({ r, idx });
+        else puzzleRuns.push({ r, idx });
+      });
+
+      const groups = [];
+      if (puzzleRuns.length > 0) {
+        groups.push(
+          `<optgroup label="Board Puzzle Benchmarks (Compare Models on Saved Boards)">${puzzleRuns
+            .map(({ r, idx }) => `<option value="${idx}">${esc(formatRunOptionLabel(r))}</option>`)
+            .join("")}</optgroup>`
+        );
+      }
+      if (gameRuns.length > 0) {
+        groups.push(
+          `<optgroup label="Full Game Benchmarks (Play Start-to-Finish Matches)">${gameRuns
+            .map(({ r, idx }) => `<option value="${idx}">${esc(formatRunOptionLabel(r))}</option>`)
+            .join("")}</optgroup>`
+        );
+      }
+      select.innerHTML = groups.join("");
+
+      let idx = 0;
+      if (state.selectedRun) {
+        const prevIdx = state.runs.findIndex(
+          (r) => r.experiment_id === state.selectedRun.experiment_id && r.run_id === state.selectedRun.run_id
+        );
+        idx = prevIdx >= 0 ? prevIdx : 0;
+      } else {
+        const coreIdx = state.runs.findIndex((r) => r.experiment_id === "T1_T2");
+        idx = coreIdx >= 0 ? coreIdx : 0;
+      }
+
       select.value = String(idx);
       onRunChanged(idx);
     }
 
     function renderEmptyRuns() {
-      document.getElementById("decision-list").innerHTML = '<div class="empty-state">No experiment runs found yet. Run <code>bench smoke --mock</code> or <code>bench eval</code>.</div>';
+      renderRunBanner(null);
+      document.getElementById("decision-list").innerHTML = '<div class="empty-state">No experiment runs found yet. Run <code>bench smoke --mock</code> or <code>bench eval --mock --pilot</code>.</div>';
       document.getElementById("matrix-detail").innerHTML = '<div class="empty-state">No run selected.</div>';
       document.getElementById("episodes-tbody").innerHTML = '<tr><td colspan="10" class="empty-state">No run selected.</td></tr>';
       document.getElementById("replay-body").innerHTML = '<div class="empty-state">No run selected.</div>';
+    }
+
+    function resetAllFilterControls() {
+      ["f-row", "f-cond", "f-tac", "f-render", "f-text", "f-mode"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
+      document.getElementById("f-fail").value = "all";
+      ["ep-opp", "ep-row", "ep-outcome", "ep-mode"].forEach((id) => {
+        document.getElementById(id).value = "";
+      });
     }
 
     async function onRunChanged(idx) {
@@ -927,12 +1610,26 @@
       state.decisionsOffset = 0;
       state.selectedDecisionKey = null;
       state.currentMatrix = null;
+      state.matrixVariantFilter = { render_variant: null, text_format: null, action_mode: null, step_idx: null };
       state.selectedEpisodeKey = null;
       state.currentReplay = null;
+      resetAllFilterControls();
+
       if (!state.selectedRun) {
         renderEmptyRuns();
         return;
       }
+
+      renderRunBanner(state.selectedRun);
+      const isGameRun = Number(state.selectedRun.total_episodes ?? 0) > 0;
+      document.getElementById("offline-run-notice").hidden = !isGameRun;
+
+      const guideBar = document.getElementById("episodes-run-guide");
+      guideBar.hidden = isGameRun;
+      const firstGameRunIdx = state.runs.findIndex((r) => Number(r.total_episodes ?? 0) > 0);
+      document.getElementById("guide-to-t6-btn").hidden = firstGameRunIdx < 0;
+
+      switchTab(isGameRun ? "episodes" : "offline");
       await Promise.all([loadDecisions(), loadEpisodes()]);
     }
 
@@ -966,12 +1663,12 @@
       state.decisionsTotal = data.total || 0;
 
       const facets = data.facets || {};
-      populateSelect(document.getElementById("f-row"), facets.row_ids, "All rows");
-      populateSelect(document.getElementById("f-cond"), facets.conditions, "All conditions");
-      populateSelect(document.getElementById("f-tac"), facets.tactical_categories, "All categories");
-      populateSelect(document.getElementById("f-render"), facets.render_variants, "All renders");
-      populateSelect(document.getElementById("f-text"), facets.text_formats, "All formats");
-      populateSelect(document.getElementById("f-mode"), facets.action_modes, "All modes");
+      populateSelect(document.getElementById("f-row"), facets.row_ids, "All setups", fmtRowOption);
+      populateSelect(document.getElementById("f-cond"), facets.conditions, "All groups", fmtCondition);
+      populateSelect(document.getElementById("f-tac"), facets.tactical_categories, "All situations", fmtTactical);
+      populateSelect(document.getElementById("f-render"), facets.render_variants, "All styles", fmtRender);
+      populateSelect(document.getElementById("f-text"), facets.text_formats, "All formats", fmtTextFormat);
+      populateSelect(document.getElementById("f-mode"), facets.action_modes, "All choices", fmtMode);
 
       document.getElementById("decisions-count").textContent = `${state.decisionsTotal} matched`;
       const start = state.decisionsTotal === 0 ? 0 : state.decisionsOffset + 1;
@@ -982,26 +1679,32 @@
 
       const listEl = document.getElementById("decision-list");
       if (state.decisions.length === 0) {
-        listEl.innerHTML = '<div class="empty-state">No decisions match the active filters.</div>';
+        listEl.innerHTML = '<div class="empty-state">No saved moves match the active filters.</div>';
         return;
       }
 
       listEl.innerHTML = state.decisions.map((d, idx) => {
         const st = statusInfo(d);
+        const rm = getRowMeta(d.row_id);
         const key = `${d.episode_id}::${d.row_id}::${d.step_idx}::${d.render_variant}::${d.text_format}::${d.action_mode}`;
         const sel = key === state.selectedDecisionKey ? "selected" : "";
+        const isGameTurn = Number(state.selectedRun.total_episodes ?? 0) > 0;
+        const boardLabel = isGameTurn
+          ? `${d.episode_id} · Turn ${(Number(d.step_idx ?? 0) + 1)}`
+          : `Board ${d.episode_id}`;
         return `
           <div class="decision-item ${sel}" data-idx="${idx}">
             <div class="decision-item-top">
-              <strong class="mono">${esc(d.episode_id)}</strong>
+              <span class="decision-item-title">${esc(boardLabel)}</span>
               <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
             </div>
+            <div class="decision-item-sub">
+              <strong>${esc(rm.model)}</strong> · ${esc(rm.modality)}
+            </div>
             <div class="decision-item-meta">
-              <span>${esc(d.row_id)}</span>
+              <span>${esc(fmtTactical(d.tactical_category))}</span>
               <span>·</span>
-              <span>${esc(d.tactical_category || "—")}</span>
-              <span>·</span>
-              <span>act=${esc(d.requested_action ?? "None")}</span>
+              <span>Picked: ${esc(fmtSquare(d.requested_action, true))}</span>
             </div>
           </div>
         `;
@@ -1025,6 +1728,7 @@
         render_variant: d.render_variant || null,
         text_format: d.text_format || null,
         action_mode: d.action_mode || null,
+        step_idx: d.step_idx ?? 0,
       };
       document.querySelectorAll(".decision-item").forEach((el, idx) => {
         const item = state.decisions[idx];
@@ -1046,45 +1750,67 @@
       const m = state.currentMatrix;
       if (!m) return;
 
-      document.getElementById("matrix-title").textContent = `Position ${m.episode_id} · 9-Way Side-by-Side Matrix`;
-      const stateValStr = m.state_value === null || m.state_value === undefined ? "?" : (m.state_value > 0 ? `+${m.state_value}` : String(m.state_value));
-      document.getElementById("matrix-badges").innerHTML = `
-        <span class="badge badge-blue">turn=${esc(m.player_to_move || "?")}</span>
-        <span class="badge badge-slate">ply=${esc(m.ply ?? 0)}</span>
-        <span class="badge badge-slate">v*=${esc(stateValStr)}</span>
-        <span class="badge badge-green">opt=${esc((m.optimal_actions || []).join(", ") || "—")}</span>
-        ${m.tactical_category ? `<span class="badge badge-amber">${esc(m.tactical_category)}</span>` : ""}
-      `;
-
       const allRows = m.rows || [];
       const variants = m.available_variants || {};
       const renders = variants.render_variants || [];
       const formats = variants.text_formats || [];
       const modes = variants.action_modes || [];
+      const stepIndices = Array.from(new Set(allRows.map((r) => Number(r.step_idx ?? 0)))).sort((a, b) => a - b);
 
       const activeRender = renders.includes(state.matrixVariantFilter.render_variant) ? state.matrixVariantFilter.render_variant : (renders[0] || null);
       const activeFormat = formats.includes(state.matrixVariantFilter.text_format) ? state.matrixVariantFilter.text_format : (formats[0] || null);
       const activeMode = modes.includes(state.matrixVariantFilter.action_mode) ? state.matrixVariantFilter.action_mode : (modes[0] || null);
+      const activeStep = stepIndices.includes(Number(state.matrixVariantFilter.step_idx)) ? Number(state.matrixVariantFilter.step_idx) : (stepIndices[0] ?? 0);
 
       const visibleRows = allRows.filter((r) => {
+        if (stepIndices.length > 1 && Number(r.step_idx ?? 0) !== activeStep) return false;
         if (renders.length > 1 && activeRender && r.render_variant && r.render_variant !== activeRender) return false;
         if (formats.length > 1 && activeFormat && r.text_format && r.text_format !== activeFormat) return false;
         if (modes.length > 1 && activeMode && r.action_mode && r.action_mode !== activeMode) return false;
         return true;
       });
-      const rowsToDisplay = visibleRows.length > 0 ? visibleRows : allRows;
+      const rowsToDisplay = (visibleRows.length > 0 ? visibleRows : allRows).slice().sort((a, b) => {
+        const ma = getRowMeta(a.row_id);
+        const mb = getRowMeta(b.row_id);
+        if (ma.modelOrder !== mb.modelOrder) return ma.modelOrder - mb.modelOrder;
+        if (ma.modOrder !== mb.modOrder) return ma.modOrder - mb.modOrder;
+        return String(a.row_id).localeCompare(String(b.row_id));
+      });
+
+      const refRow = rowsToDisplay[0] || m;
+      const boardSnapshot = refRow.board || m.board;
+      const playerToMove = refRow.player_to_move || m.player_to_move;
+      const plyNum = Number(refRow.ply ?? m.ply ?? 0);
+      const stateValue = refRow.state_value !== undefined && refRow.state_value !== null ? refRow.state_value : m.state_value;
+      const optActions = refRow.optimal_actions && refRow.optimal_actions.length > 0 ? refRow.optimal_actions : (m.optimal_actions || []);
+      const actValues = refRow.action_values && Object.keys(refRow.action_values).length > 0 ? refRow.action_values : (m.action_values || {});
+      const legalActions = refRow.legal_actions && refRow.legal_actions.length > 0 ? refRow.legal_actions : (m.legal_actions || []);
+      const tacticalCat = refRow.tactical_category || m.tactical_category;
+      const moveHistory = refRow.move_history || m.move_history || [];
+
+      const optCount = rowsToDisplay.filter((r) => r.response_valid && r.action_is_legal && r.action_is_optimal).length;
+
+      document.getElementById("matrix-title").textContent = `Board ${m.episode_id} — How Each Model Played`;
+      document.getElementById("matrix-badges").innerHTML = `
+        <span class="badge badge-blue">${esc(playerToMove || "?")}'s Turn (Move #${plyNum + 1})</span>
+        ${tacticalCat ? `<span class="badge badge-amber">${esc(fmtTactical(tacticalCat))}</span>` : ""}
+        <span class="badge badge-slate">Best Outcome: ${esc(fmtStateOutcome(stateValue, playerToMove))}</span>
+        <span class="badge badge-green">Best: ${esc(optActions.map((k) => fmtSquare(k, true)).join(", ") || "—")}</span>
+      `;
 
       const rowWithFrame = rowsToDisplay.find((r) => r.frame_urls && r.frame_urls.length > 0);
       const frameUrl = rowWithFrame ? rowWithFrame.frame_urls[0] : (m.frame_urls && m.frame_urls.length > 0 ? m.frame_urls[0] : null);
       const rowWithText = rowsToDisplay.find((r) => r.state_text);
       const stateText = rowWithText ? rowWithText.state_text : m.state_text;
+      const activeRenderLabel = fmtRender(rowWithFrame?.render_variant || activeRender);
 
-      const variantControls = (renders.length > 1 || formats.length > 1 || modes.length > 1)
+      const variantControls = (stepIndices.length > 1 || renders.length > 1 || formats.length > 1 || modes.length > 1)
         ? `
-          <div class="variant-pills" style="margin-bottom: 12px;">
-            ${renders.length > 1 ? renders.map((rv) => `<button type="button" class="pill-btn ${rv === activeRender ? "active" : ""}" data-mv-render="${esc(rv)}">render: ${esc(rv)}</button>`).join("") : ""}
-            ${formats.length > 1 ? formats.map((tf) => `<button type="button" class="pill-btn ${tf === activeFormat ? "active" : ""}" data-mv-format="${esc(tf)}">text: ${esc(tf)}</button>`).join("") : ""}
-            ${modes.length > 1 ? modes.map((am) => `<button type="button" class="pill-btn ${am === activeMode ? "active" : ""}" data-mv-mode="${esc(am)}">mode: ${esc(am)}</button>`).join("") : ""}
+          <div class="variant-pills" style="margin-bottom: 14px;">
+            ${stepIndices.length > 1 ? stepIndices.map((sIdx) => `<button type="button" class="pill-btn ${sIdx === activeStep ? "active" : ""}" data-mv-step="${sIdx}">Turn ${sIdx + 1}</button>`).join("") : ""}
+            ${renders.length > 1 ? renders.map((rv) => `<button type="button" class="pill-btn ${rv === activeRender ? "active" : ""}" data-mv-render="${esc(rv)}">Image: ${esc(fmtRender(rv))}</button>`).join("") : ""}
+            ${formats.length > 1 ? formats.map((tf) => `<button type="button" class="pill-btn ${tf === activeFormat ? "active" : ""}" data-mv-format="${esc(tf)}">Text: ${esc(fmtTextFormat(tf))}</button>`).join("") : ""}
+            ${modes.length > 1 ? modes.map((am) => `<button type="button" class="pill-btn ${am === activeMode ? "active" : ""}" data-mv-mode="${esc(am)}">${esc(fmtMode(am))}</button>`).join("") : ""}
           </div>
         `
         : "";
@@ -1094,55 +1820,95 @@
         <div class="inspection-strip">
           <div class="card-box">
             <div class="card-label">
-              <span>512×512 Board Frame</span>
-              <span class="mono muted">${frameUrl ? "PNG" : "SVG fallback"}</span>
+              <span>Board Image (Vision Input)</span>
+              <span class="muted">${esc(frameUrl ? activeRenderLabel : "Diagram")}</span>
             </div>
             ${frameUrl
-              ? `<img src="${esc(frameUrl)}" alt="Board frame for ${esc(m.episode_id)}" class="board-frame-img" />`
-              : renderFallbackSvgBoard(m.board, m.player_to_move)}
+              ? `<img src="${esc(frameUrl)}" alt="Board image for ${esc(m.episode_id)}" class="board-frame-img" />`
+              : renderFallbackSvgBoard(boardSnapshot, playerToMove)}
+            <div class="card-help">Exact image shown to vision setups (512×512 PNG).</div>
           </div>
 
           <div class="card-box">
             <div class="card-label">
-              <span>Oracle Minimax Values</span>
-              <span class="mono muted">+1 / 0 / -1</span>
+              <span>Best Move Guide (Perfect Solver)</span>
+              <span class="muted">${esc(playerToMove || "?")} to move</span>
             </div>
-            ${renderOracleGrid(m.board, m.action_values, m.optimal_actions)}
+            ${renderOracleGrid(boardSnapshot, actValues, optActions)}
           </div>
 
           <div class="card-box">
             <div class="card-label">
-              <span>Exact state_text Payload</span>
-              <span class="mono muted">history: ${esc((m.move_history || []).join(" → ") || "empty")}</span>
+              <span>Text Prompt (Text Input)</span>
+              <span class="muted">Prior moves: ${esc(moveHistory.map((k) => fmtSquare(k, true)).join(" → ") || "Empty board")}</span>
             </div>
-            <pre class="payload-box">${esc(stateText || "(No text payload in this slice — vision-only condition)")}</pre>
+            <pre class="payload-box">${esc(stateText || "(No text prompt shown here — click an Image + Text or Text Only setup to view the exact text sent to the model.)")}</pre>
           </div>
         </div>
 
         ${variantControls}
 
+        <div class="section-heading">
+          <h3>Model Responses on This Board (${rowsToDisplay.length} ${rowsToDisplay.length === 1 ? "setup" : "setups"})</h3>
+          <span>${optCount} of ${rowsToDisplay.length} picked a best move · Arranged by Model (rows) and Input Type (columns)</span>
+        </div>
+
         <div class="matrix-grid">
           ${rowsToDisplay.map((r) => {
             const st = statusInfo(r);
-            const tokStr = `${r.input_tokens ?? 0}/${r.output_tokens ?? 0}/${r.thought_tokens ?? 0}`;
+            const rm = getRowMeta(r.row_id);
+            const cardKey = `${r.episode_id}::${r.row_id}::${r.step_idx}::${r.render_variant}::${r.text_format}::${r.action_mode}`;
+            const isSelectedCard = cardKey === state.selectedDecisionKey;
+            const pickedText = r.action_is_legal
+              ? fmtSquare(r.executed_action || r.requested_action, true)
+              : (r.requested_action ? `${fmtSquare(r.requested_action, true)} (Taken!)` : "None");
+            const confText = r.confidence !== null && r.confidence !== undefined
+              ? fmtPct(r.confidence, 1)
+              : "N/A (text choice)";
+            const tokenSummary = `${r.input_tokens ?? 0} in / ${r.output_tokens ?? 0} out`;
             return `
-              <div class="matrix-card ${st.cls}">
+              <div class="matrix-card ${st.cls} ${isSelectedCard ? "selected-card" : ""}">
                 <div class="matrix-card-head">
                   <div>
-                    <div class="row-title">${esc(r.row_id)} <span class="muted">(${esc(r.condition_code)})</span></div>
-                    <div class="row-sub mono">${esc(r.model_id)} · ${esc(r.family)}</div>
+                    <div class="row-title">${esc(rm.model)}</div>
+                    <div class="row-sub">
+                      <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span>
+                      <span>${esc(rm.familyLabel)}</span>
+                      <span class="mono" title="Internal setup ID: ${esc(r.row_id)} (${esc(r.condition_code)})">${esc(r.row_id)}</span>
+                    </div>
                   </div>
                   <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
                 </div>
+
                 <div class="kv-grid">
-                  <div class="kv-item"><span class="k">Requested / Exec</span><span class="v">${esc(r.requested_action ?? "None")} → ${esc(r.executed_action ?? "None")}</span></div>
-                  <div class="kv-item"><span class="k">Confidence</span><span class="v">${r.confidence !== null && r.confidence !== undefined ? fmtNum(r.confidence, 3) : "—"}</span></div>
-                  <div class="kv-item"><span class="k">Latency (Mod / E2E)</span><span class="v">${fmtMs(r.model_latency_ms)} / ${fmtMs(r.end_to_end_latency_ms)}</span></div>
-                  <div class="kv-item"><span class="k">Cost / Tokens (I/O/T)</span><span class="v">${fmtCost(r.api_cost_usd)} · ${tokStr}</span></div>
+                  <div class="kv-item">
+                    <span class="k">Move Picked</span>
+                    <span class="v">${esc(pickedText)}</span>
+                  </div>
+                  <div class="kv-item">
+                    <span class="k">Confidence</span>
+                    <span class="v">${esc(confText)}</span>
+                  </div>
+                  <div class="kv-item" title="Model response: ${fmtMs(r.model_latency_ms)} · Total end-to-end: ${fmtMs(r.end_to_end_latency_ms)}">
+                    <span class="k">Response Time</span>
+                    <span class="v">${fmtMs(r.model_latency_ms)}</span>
+                  </div>
+                  <div class="kv-item" title="Tokens: ${esc(tokenSummary)} · Thought tokens: ${r.thought_tokens ?? 0}">
+                    <span class="k">Est. Cost · Tokens</span>
+                    <span class="v">${fmtCost(r.api_cost_usd)} · ${esc(tokenSummary)}</span>
+                  </div>
                 </div>
-                ${renderProbBars(r.action_probabilities, m.optimal_actions, m.legal_actions, r.requested_action)}
+
+                <div>
+                  <div class="card-label" style="margin-bottom:4px;">
+                    <span>Square Probabilities</span>
+                    <span class="muted">▶ = picked</span>
+                  </div>
+                  ${renderProbBars(r.action_probabilities, optActions, legalActions, r.requested_action)}
+                </div>
+
                 ${(r.optimal_mass !== null && r.optimal_mass !== undefined)
-                  ? `<div class="mono muted" style="font-size:11px;">optimal_mass=${fmtNum(r.optimal_mass, 3)} · illegal_mass=${fmtNum(r.illegal_mass, 3)}</div>`
+                  ? `<div class="muted" style="font-size:11.5px;">Chance on best moves: <strong>${fmtPct(r.optimal_mass, 1)}</strong> · On taken squares: <strong>${fmtPct(r.illegal_mass, 1)}</strong></div>`
                   : ""}
                 ${r.error_message ? `<div class="mono" style="font-size:11px; color:#fca5a5;">${esc(r.error_message)}</div>` : ""}
               </div>
@@ -1151,6 +1917,12 @@
         </div>
       `;
 
+      detailEl.querySelectorAll("[data-mv-step]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.matrixVariantFilter.step_idx = Number(btn.dataset.mvStep);
+          renderMatrix();
+        });
+      });
       detailEl.querySelectorAll("[data-mv-render]").forEach((btn) => {
         btn.addEventListener("click", () => {
           state.matrixVariantFilter.render_variant = btn.dataset.mvRender;
@@ -1171,7 +1943,7 @@
       });
     }
 
-    // Tab 2: Episodes
+    // Tab 2: Full Games Replay
     function buildEpisodeQuery() {
       const params = new URLSearchParams();
       params.set("limit", "200");
@@ -1196,34 +1968,52 @@
       state.episodesTotal = data.total || 0;
 
       const facets = data.facets || {};
-      populateSelect(document.getElementById("ep-opp"), facets.opponent_types, "All opponents");
-      populateSelect(document.getElementById("ep-row"), facets.row_ids, "All rows");
-      populateSelect(document.getElementById("ep-outcome"), facets.outcomes, "All outcomes");
-      populateSelect(document.getElementById("ep-mode"), facets.action_modes, "All modes");
+      populateSelect(document.getElementById("ep-opp"), facets.opponent_types, "All opponents", fmtOpponent);
+      populateSelect(document.getElementById("ep-row"), facets.row_ids, "All setups", fmtRowOption);
+      populateSelect(document.getElementById("ep-outcome"), facets.outcomes, "All results", (o) => OUTCOME_META[o]?.label || o);
+      populateSelect(document.getElementById("ep-mode"), facets.action_modes, "All choices", fmtMode);
 
-      document.getElementById("episodes-count").textContent = `${state.episodesTotal} episodes`;
+      const wins = state.episodes.filter((e) => e.outcome === "win").length;
+      const draws = state.episodes.filter((e) => e.outcome === "draw").length;
+      const losses = state.episodes.filter((e) => e.outcome === "loss_by_board").length;
+      const illegalLosses = state.episodes.filter((e) => e.outcome === "loss_by_illegal_move").length;
+
+      const pillsEl = document.getElementById("episodes-summary-pills");
+      pillsEl.innerHTML = `
+        <span id="episodes-count" class="mono muted">${state.episodesTotal} games</span>
+        ${state.episodes.length > 0 ? `
+          <span class="badge badge-green">Won: ${wins}</span>
+          <span class="badge badge-blue">Tie: ${draws}</span>
+          <span class="badge badge-amber">Lost: ${losses}</span>
+          ${illegalLosses > 0 ? `<span class="badge badge-rose">Forfeits: ${illegalLosses}</span>` : ""}
+        ` : ""}
+      `;
+
       const tbody = document.getElementById("episodes-tbody");
       if (state.episodes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No T6 episodes in this run (or matching active filters).</td></tr>';
-        document.getElementById("replay-body").innerHTML = '<div class="empty-state">Select a T6 run and episode to inspect turn-by-turn replay.</div>';
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No completed games in this run (or matching active filters).</td></tr>';
+        document.getElementById("replay-title").textContent = "Game Replay — Move by Move";
+        document.getElementById("replay-summary-badges").innerHTML = "";
+        document.getElementById("replay-body").innerHTML = '<div class="empty-state">Select a Full Games run (or clear filters above) to step through a match turn by turn.</div>';
         return;
       }
 
       tbody.innerHTML = state.episodes.map((ep, idx) => {
+        const rm = getRowMeta(ep.row_id);
         const key = `${ep.episode_id}::${ep.row_id}::${ep.action_mode}::${ep.opponent_type}`;
         const sel = key === state.selectedEpisodeKey ? "selected" : "";
         return `
           <tr class="ep-row ${sel}" data-idx="${idx}">
-            <td class="mono">${esc(ep.episode_id)}</td>
-            <td class="mono">${esc(ep.row_id)}</td>
-            <td class="mono">${esc(ep.opponent_type)}</td>
-            <td class="mono">${esc(ep.action_mode)}</td>
-            <td class="mono">${esc(ep.agent_mark)} (${ep.goes_first ? "1st" : "2nd"})</td>
-            <td>${outcomeBadge(ep.outcome)}</td>
-            <td class="mono">${esc(ep.num_plies)}</td>
-            <td class="mono">${esc(ep.illegal_moves ?? 0)}</td>
-            <td class="mono">${fmtCost(ep.total_cost_usd)}</td>
-            <td class="mono">${ep.mean_effective_regret !== null && ep.mean_effective_regret !== undefined ? fmtNum(ep.mean_effective_regret, 3) : "—"}</td>
+            <th scope="row" class="mono">${esc(ep.episode_id)}</th>
+            <td data-label="AI Model &amp; Input"><strong>${esc(rm.model)}</strong> · <span class="muted">${esc(rm.modality)}</span></td>
+            <td data-label="Opponent">${esc(fmtOpponent(ep.opponent_type))}</td>
+            <td data-label="Allowed Choices">${esc(fmtMode(ep.action_mode))}</td>
+            <td data-label="Plays As">${esc(ep.agent_mark)} (${ep.goes_first ? "Moves 1st" : "Moves 2nd"})</td>
+            <td data-label="Result">${outcomeBadge(ep.outcome)}</td>
+            <td data-label="Total Moves" class="mono">${esc(ep.num_plies)}</td>
+            <td data-label="Illegal Picks" class="mono">${esc(ep.illegal_moves ?? 0)}</td>
+            <td data-label="Est. Cost" class="mono">${fmtCost(ep.total_cost_usd)}</td>
+            <td data-label="Avg Mistake Penalty" class="mono">${ep.mean_effective_regret !== null && ep.mean_effective_regret !== undefined ? fmtNum(ep.mean_effective_regret, 2) : "—"}</td>
           </tr>
         `;
       }).join("");
@@ -1273,25 +2063,25 @@
       if (!r) return;
       const ep = r.episode || {};
       const steps = r.decisions || [];
+      const rm = getRowMeta(ep.row_id);
 
-      document.getElementById("replay-title").textContent = `Episode ${r.episode_id} · ${ep.row_id || ""}`;
+      document.getElementById("replay-title").textContent = `Game Replay: ${rm.model} (${rm.modality}) vs ${fmtOpponent(ep.opponent_type)}`;
       document.getElementById("replay-summary-badges").innerHTML = `
         ${outcomeBadge(ep.outcome)}
-        <span class="badge badge-slate">vs ${esc(ep.opponent_type || "?")}</span>
-        <span class="badge badge-blue">mark=${esc(ep.agent_mark || "?")} (${ep.goes_first ? "goes first" : "goes second"})</span>
-        <span class="badge badge-slate">term=${esc(ep.termination_reason || "—")}</span>
-        <span class="badge badge-slate">reward=${esc(ep.agent_reward ?? "—")}</span>
+        <span class="badge badge-blue">Playing as ${esc(ep.agent_mark || "?")} (${ep.goes_first ? "Moved 1st" : "Moved 2nd"})</span>
+        <span class="badge badge-slate">Ended by: ${esc(fmtTermination(ep.termination_reason))}</span>
       `;
 
       const body = document.getElementById("replay-body");
       if (steps.length === 0) {
-        body.innerHTML = '<div class="empty-state">No turn decisions recorded for this episode.</div>';
+        body.innerHTML = '<div class="empty-state">No turn decisions recorded for this game.</div>';
         return;
       }
 
       const idx = Math.max(0, Math.min(steps.length - 1, state.replayStepIdx));
       const step = steps[idx];
       const st = statusInfo(step);
+      const stepRm = getRowMeta(step.row_id);
       const frameUrl = step.frame_urls && step.frame_urls.length > 0 ? step.frame_urls[0] : null;
       const isLast = idx === steps.length - 1;
 
@@ -1299,28 +2089,38 @@
         <div class="scrubber-controls">
           <button id="sc-first" type="button" ${idx === 0 ? "disabled" : ""}>First</button>
           <button id="sc-prev" type="button" ${idx === 0 ? "disabled" : ""}>Prev</button>
-          <input id="sc-range" type="range" min="0" max="${steps.length - 1}" value="${idx}" aria-label="Step scrubber" />
+          <input id="sc-range" type="range" min="0" max="${steps.length - 1}" value="${idx}" aria-label="Game turn scrubber" />
           <button id="sc-next" type="button" ${isLast ? "disabled" : ""}>Next</button>
           <button id="sc-last" type="button" ${isLast ? "disabled" : ""}>Last</button>
-          <span class="mono">Step ${idx + 1} / ${steps.length}</span>
-          <span class="muted" style="font-size:12px;">(← / →)</span>
+          <span class="mono">AI Turn ${idx + 1} / ${steps.length}</span>
+          <span class="muted" style="font-size:12px;">(Use ← / → keys)</span>
+        </div>
+
+        <div class="turn-chips">
+          ${steps.map((s, sIdx) => {
+            const sst = statusInfo(s);
+            const chipTone = s.response_valid
+              ? (s.action_is_legal ? (s.action_is_optimal ? "chip-optimal" : "chip-suboptimal") : "chip-illegal")
+              : "chip-invalid";
+            return `<button type="button" class="turn-chip ${chipTone} ${sIdx === idx ? "active" : ""}" data-step-jump="${sIdx}" title="${esc(sst.label)}">Turn ${sIdx + 1}: ${esc(s.requested_action || "?")} ${esc(sst.shortIcon)}</button>`;
+          }).join("")}
         </div>
 
         <div class="step-layout">
           <div style="display:flex; flex-direction:column; gap:12px;">
             <div class="card-box">
               <div class="card-label">
-                <span>Board State at Step ${idx + 1}</span>
-                <span class="mono muted">ply ${esc(step.ply ?? 0)}</span>
+                <span>Board at AI Turn ${idx + 1}</span>
+                <span class="muted">Board Move #${Number(step.ply ?? 0) + 1}</span>
               </div>
               ${frameUrl
-                ? `<img src="${esc(frameUrl)}" alt="Step ${idx + 1} board frame" class="board-frame-img" />`
+                ? `<img src="${esc(frameUrl)}" alt="Board frame at AI turn ${idx + 1}" class="board-frame-img" />`
                 : renderFallbackSvgBoard(step.board, step.player_to_move)}
             </div>
             <div class="card-box">
               <div class="card-label">
-                <span>Oracle Values</span>
-                <span class="mono muted">v*=${esc(step.state_value ?? "?")}</span>
+                <span>Best Move Guide (Perfect Solver)</span>
+                <span class="muted">${esc(fmtStateOutcome(step.state_value, step.player_to_move))}</span>
               </div>
               ${renderOracleGrid(step.board, step.action_values, step.optimal_actions)}
             </div>
@@ -1329,36 +2129,36 @@
           <div style="display:flex; flex-direction:column; gap:12px;">
             <div class="card-box">
               <div class="card-label">
-                <span>Turn Decision Metadata (${esc(step.row_id)} · ${esc(step.model_id)})</span>
+                <span>Move Breakdown (${esc(stepRm.model)} · ${esc(stepRm.modality)})</span>
                 <span class="badge ${st.badgeCls}">${esc(st.label)}</span>
               </div>
               <div class="kv-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
-                <div class="kv-item"><span class="k">Step / Ply</span><span class="v">${esc(step.step_idx)} / ${esc(step.ply)}</span></div>
-                <div class="kv-item"><span class="k">Player to Move</span><span class="v">${esc(step.player_to_move || "?")}</span></div>
-                <div class="kv-item"><span class="k">Tactical Category</span><span class="v">${esc(step.tactical_category || "—")}</span></div>
-                <div class="kv-item"><span class="k">Requested Action</span><span class="v">${esc(step.requested_action ?? "None")}</span></div>
-                <div class="kv-item"><span class="k">Executed Action</span><span class="v">${esc(step.executed_action ?? "None")}</span></div>
-                <div class="kv-item"><span class="k">Optimal Actions</span><span class="v">${esc((step.optimal_actions || []).join(", ") || "—")}</span></div>
-                <div class="kv-item"><span class="k">Regret (Legal / Eff)</span><span class="v">${step.legal_regret ?? "—"} / ${step.effective_regret ?? "—"}</span></div>
-                <div class="kv-item"><span class="k">Latency (Mod / E2E)</span><span class="v">${fmtMs(step.model_latency_ms)} / ${fmtMs(step.end_to_end_latency_ms)}</span></div>
-                <div class="kv-item"><span class="k">Cost / Confidence</span><span class="v">${fmtCost(step.api_cost_usd)} · ${step.confidence !== null && step.confidence !== undefined ? fmtNum(step.confidence, 3) : "—"}</span></div>
+                <div class="kv-item"><span class="k">AI Turn / Board Move</span><span class="v">Turn ${idx + 1} · Move #${Number(step.ply ?? 0) + 1}</span></div>
+                <div class="kv-item"><span class="k">Playing As</span><span class="v">${esc(step.player_to_move || "?")}</span></div>
+                <div class="kv-item"><span class="k">Board Situation</span><span class="v">${esc(fmtTactical(step.tactical_category))}</span></div>
+                <div class="kv-item"><span class="k">AI Picked</span><span class="v">${esc(fmtSquare(step.requested_action, true))}</span></div>
+                <div class="kv-item"><span class="k">Played on Board</span><span class="v">${esc(step.action_is_legal ? fmtSquare(step.executed_action, true) : "Rejected (Square Taken)")}</span></div>
+                <div class="kv-item"><span class="k">Best Square(s)</span><span class="v">${esc((step.optimal_actions || []).map((k) => fmtSquare(k, true)).join(", ") || "—")}</span></div>
+                <div class="kv-item"><span class="k">Mistake Penalty</span><span class="v">${step.legal_regret !== null && step.legal_regret !== undefined ? `${step.legal_regret} pt(s)` : "N/A (Illegal/Invalid)"}</span></div>
+                <div class="kv-item"><span class="k">Response Time</span><span class="v">${fmtMs(step.model_latency_ms)}</span></div>
+                <div class="kv-item"><span class="k">Est. Cost · Confidence</span><span class="v">${fmtCost(step.api_cost_usd)} · ${step.confidence !== null && step.confidence !== undefined ? fmtPct(step.confidence, 1) : "N/A"}</span></div>
               </div>
               ${isLast && (step.termination_reason || ep.termination_reason)
-                ? `<div style="margin-top:10px;"><span class="badge badge-blue">Final termination: ${esc(step.termination_reason || ep.termination_reason)}</span></div>`
+                ? `<div style="margin-top:10px;"><span class="badge badge-blue">Game ended here: ${esc(fmtTermination(step.termination_reason || ep.termination_reason))}</span></div>`
                 : ""}
             </div>
 
             <div class="card-box">
               <div class="card-label">
-                <span>Action Probabilities</span>
-                <span class="mono muted">${step.optimal_mass !== null && step.optimal_mass !== undefined ? `opt_mass=${fmtNum(step.optimal_mass, 3)}` : ""}</span>
+                <span>Square Probabilities</span>
+                <span class="muted">${step.optimal_mass !== null && step.optimal_mass !== undefined ? `Chance on best moves: ${fmtPct(step.optimal_mass, 1)}` : ""}</span>
               </div>
               ${renderProbBars(step.action_probabilities, step.optimal_actions, step.legal_actions, step.requested_action)}
             </div>
 
             ${step.state_text ? `
               <div class="card-box">
-                <div class="card-label"><span>state_text Payload</span></div>
+                <div class="card-label"><span>Text Prompt Sent to Model</span></div>
                 <pre class="payload-box">${esc(step.state_text)}</pre>
               </div>
             ` : ""}
@@ -1371,21 +2171,39 @@
       document.getElementById("sc-next").addEventListener("click", () => setReplayStep(idx + 1));
       document.getElementById("sc-last").addEventListener("click", () => setReplayStep(steps.length - 1));
       document.getElementById("sc-range").addEventListener("input", (e) => setReplayStep(Number(e.target.value)));
+      body.querySelectorAll("[data-step-jump]").forEach((btn) => {
+        btn.addEventListener("click", () => setReplayStep(Number(btn.dataset.stepJump)));
+      });
     }
 
-    // Event bindings
-    document.querySelectorAll(".tab-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.activeTab = btn.dataset.tab;
-        document.querySelectorAll(".tab-btn").forEach((b) => {
-          const active = b.dataset.tab === state.activeTab;
-          b.classList.toggle("active", active);
-          b.setAttribute("aria-selected", active ? "true" : "false");
-        });
-        document.querySelectorAll(".tab-panel").forEach((p) => {
-          p.classList.toggle("active", p.id === `tab-${state.activeTab}`);
-        });
+    // Event bindings & accessible tab interaction
+    const tabButtons = Array.from(document.querySelectorAll('[role="tab"]'));
+    tabButtons.forEach((btn, i) => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+      btn.addEventListener("keydown", (e) => {
+        let nextIdx = null;
+        if (e.key === "ArrowRight") nextIdx = (i + 1) % tabButtons.length;
+        else if (e.key === "ArrowLeft") nextIdx = (i - 1 + tabButtons.length) % tabButtons.length;
+        else if (e.key === "Home") nextIdx = 0;
+        else if (e.key === "End") nextIdx = tabButtons.length - 1;
+        if (nextIdx !== null) {
+          e.preventDefault();
+          switchTab(tabButtons[nextIdx].dataset.tab, { focus: true });
+        }
       });
+    });
+
+    document.getElementById("tab-offline").addEventListener("beforematch", () => switchTab("offline"));
+    document.getElementById("tab-episodes").addEventListener("beforematch", () => switchTab("episodes"));
+
+    document.getElementById("jump-to-games-btn").addEventListener("click", () => switchTab("episodes"));
+    document.getElementById("guide-to-puzzles-btn").addEventListener("click", () => switchTab("offline"));
+    document.getElementById("guide-to-t6-btn").addEventListener("click", () => {
+      const idx = state.runs.findIndex((r) => Number(r.total_episodes ?? 0) > 0);
+      if (idx >= 0) {
+        document.getElementById("run-select").value = String(idx);
+        onRunChanged(idx);
+      }
     });
 
     document.getElementById("run-select").addEventListener("change", (e) => {
@@ -1437,7 +2255,9 @@
 
     document.addEventListener("keydown", (e) => {
       if (state.activeTab !== "episodes") return;
-      const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+      const target = e.target;
+      if (target && target.closest && target.closest('[role="tablist"]')) return;
+      const tag = (target && target.tagName) ? target.tagName.toLowerCase() : "";
       if (tag === "select" || tag === "input" || tag === "textarea") return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
