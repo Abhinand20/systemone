@@ -173,7 +173,7 @@ class GameConfig(BaseModel):
     game: str
     board_size: int = 3
     image_size: tuple[int, int] = (512, 512)
-    default_render_variant: str = "clean_default"
+    default_render_variant: str = "labeled_margins"
     render_variants: list[str]
     default_text_format: str = "json_canonical"
     text_formats: list[str]

@@ -3,7 +3,7 @@ board_size: 3
 image_size:
   - 512
   - 512
-default_render_variant: clean_default
+default_render_variant: labeled_margins
 render_variants:
   - clean_default
   - labeled_margins

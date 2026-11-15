@@ -27,6 +27,7 @@ from dm_bench.analysis import (
     mcnemar_exact_pvalue,
     paired_bootstrap_ci,
 )
+from dm_bench.analysis.stats import select_core_t2_decisions, select_t3_decisions
 from dm_bench.contracts import DecisionLogRow, EpisodeLogRow, H2HMatchLogRow, RunManifest
 from dm_bench.logging_io import RunLogger
 
@@ -972,3 +973,47 @@ def test_reconcile_legacy_rate_limit_forfeit_and_exclude_from_metrics(tmp_path: 
     md = Path(res["report_path"]).read_text(encoding="utf-8")
     assert "Excluded infrastructure/API decision errors" in md
     assert "Excluded aborted episodes due to API/rate-limit errors" in md
+
+
+def test_select_core_t2_and_t3_with_labeled_margins_baseline() -> None:
+    decisions = [
+        _make_decision(
+            experiment_id="T1_T2",
+            run_id="run_core",
+            row_id="A_gdec_V",
+            episode_id="pos_0001",
+            render_variant="labeled_margins",
+        ),
+        _make_decision(
+            experiment_id="T1_T2",
+            run_id="run_core",
+            row_id="B_gdec_T",
+            episode_id="pos_0001",
+            render_variant=None,
+            text_format="json_canonical",
+        ),
+    ]
+    core = select_core_t2_decisions(decisions)
+    assert len(core) == 2
+    assert select_t3_decisions(decisions) == []
+
+    t3_decisions = decisions + [
+        _make_decision(
+            experiment_id="T3",
+            run_id="run_t3",
+            row_id="A_gdec_V",
+            episode_id="pos_0001",
+            render_variant=var,
+        )
+        for var in ("clean_default", "dark_low_contrast", "thin_alt_font", "tilt_blur")
+    ]
+    t3_pool = select_t3_decisions(t3_decisions)
+    assert [d.row_id for d in t3_pool] == ["A_gdec_V"] * 5
+    assert {d.render_variant for d in t3_pool} == {
+        "labeled_margins",
+        "clean_default",
+        "dark_low_contrast",
+        "thin_alt_font",
+        "tilt_blur",
+    }
+

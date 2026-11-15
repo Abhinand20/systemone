@@ -323,10 +323,11 @@ async def run_smoke(
     legal_keys = list(legal_action_keys(board))
     criteria = action_criteria_for_state(board, "all_9")
 
+    default_render_variant = game_cfg.default_render_variant
     png_bytes = render_ttt_png(
         board=board,
         player_to_move=player_to_move,
-        variant="clean_default",
+        variant=default_render_variant,
         position_id=position_id,
     )
     media_store = MediaStore(repo_root=root)
@@ -355,7 +356,7 @@ async def run_smoke(
         mock_mode=mock,
         pilot_mode=False,
         rows=selected_row_ids,
-        render_variants=["clean_default"],
+        render_variants=[default_render_variant],
         text_formats=["json_canonical"],
         action_modes=["all_9"],
         max_cost_usd=max_cost_usd,
@@ -397,7 +398,7 @@ async def run_smoke(
             action_criteria=criteria,
             frames=[saved_frame] if row_cfg.use_vision else [],
             state_text=state_text if row_cfg.use_text else None,
-            render_variant="clean_default" if row_cfg.use_vision else None,
+            render_variant=default_render_variant if row_cfg.use_vision else None,
             text_format="json_canonical" if row_cfg.use_text else None,
             action_mode="all_9",
             player_to_move=player_to_move,

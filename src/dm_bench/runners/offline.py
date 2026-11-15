@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import time
@@ -48,7 +49,7 @@ from dm_bench.runners.progress import EvalProgressTracker
 
 T3_DEFAULT_ROWS: tuple[str, ...] = ("A_jev_V", "A_gdec_V", "C_ghyd_V")
 T3_VARIANTS: tuple[str, ...] = (
-    "labeled_margins",
+    "clean_default",
     "dark_low_contrast",
     "thin_alt_font",
     "tilt_blur",
@@ -94,6 +95,8 @@ def _resolve_offline_spec(
     *,
     pilot: bool,
     full_240: bool,
+    default_render_variant: str = "labeled_margins",
+    all_render_variants: Sequence[str] | None = None,
 ) -> _OfflineSpec:
     exp_id = _normalize_experiment_id(experiment_id)
     if exp_id in {"T1", "T2", "T1_T2"}:
@@ -101,17 +104,22 @@ def _resolve_offline_spec(
             experiment_id=exp_id,
             dataset_key="pilot" if pilot else "test",
             default_rows=None,
-            render_variants=("clean_default",),
+            render_variants=(default_render_variant,),
             text_formats=("json_canonical",),
             action_mode="all_9",
         )
     if exp_id == "T3":
         dataset_key = "pilot" if pilot else ("test" if full_240 else "ablation")
+        t3_variants = (
+            tuple(v for v in all_render_variants if v != default_render_variant)
+            if all_render_variants is not None
+            else T3_VARIANTS
+        )
         return _OfflineSpec(
             experiment_id=exp_id,
             dataset_key=dataset_key,
             default_rows=T3_DEFAULT_ROWS,
-            render_variants=T3_VARIANTS,
+            render_variants=t3_variants,
             text_formats=(),
             action_mode="all_9",
         )
@@ -120,7 +128,7 @@ def _resolve_offline_spec(
             experiment_id=exp_id,
             dataset_key="pilot" if pilot else "test",
             default_rows=None,
-            render_variants=("clean_default",),
+            render_variants=(default_render_variant,),
             text_formats=("json_canonical",),
             action_mode="legal_only",
         )
@@ -212,8 +220,14 @@ async def run_offline_experiment(
     load_env(root)
     clean_run_name = normalize_run_name(run_name)
 
-    spec = _resolve_offline_spec(experiment_id, pilot=pilot, full_240=full_240)
     game_cfg = load_game_config("tic_tac_toe", root)
+    spec = _resolve_offline_spec(
+        experiment_id,
+        pilot=pilot,
+        full_240=full_240,
+        default_render_variant=game_cfg.default_render_variant,
+        all_render_variants=game_cfg.render_variants,
+    )
     prompt_cfg = load_prompt_config(game_cfg.prompt_template, root)
     matrix_cfg = load_core_matrix(root)
 

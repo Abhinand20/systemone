@@ -1106,7 +1106,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
             core_t2 = select_core_t2_decisions(eval_decisions)
             if core_t2:
                 lb_pool = core_t2
-                source_label = "Core Board Puzzles (Clean Standard · All 9 Squares)"
+                source_label = "Core Board Puzzles (All 9 Squares)"
             else:
                 non_t6 = [
                     d for d in eval_decisions if d.experiment_id not in ("T6", "H2H")
@@ -1120,7 +1120,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
         else:
             lb_pool = list(eval_decisions)
             source_label = (
-                "Core Board Puzzles (Clean Standard · All 9 Squares)"
+                "Core Board Puzzles (All 9 Squares)"
                 if experiment_id in {"T1", "T2", "T1_T2", "T1+T2"}
                 else "Moves in Selected Run"
             )

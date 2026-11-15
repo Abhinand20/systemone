@@ -186,7 +186,7 @@ async def test_offline_t2_t3_t4_t5_mock(tmp_path: Path) -> None:
     assert len(t2_rows) == 270
     for r in t2_rows:
         if r.row_id.endswith("_V"):
-            assert r.render_variant == "clean_default"
+            assert r.render_variant == "labeled_margins"
             assert r.text_format is None
             assert len(r.frame_paths) == 1
             assert (tmp_repo / r.frame_paths[0]).is_file()
@@ -197,7 +197,7 @@ async def test_offline_t2_t3_t4_t5_mock(tmp_path: Path) -> None:
             assert r.frame_paths == []
             assert r.state_text is not None
         else:
-            assert r.render_variant == "clean_default"
+            assert r.render_variant == "labeled_margins"
             assert r.text_format == "json_canonical"
             assert len(r.frame_paths) == 1
             assert r.state_text is not None
@@ -212,7 +212,7 @@ async def test_offline_t2_t3_t4_t5_mock(tmp_path: Path) -> None:
     assert len(t3_rows) == 360
     assert {r.row_id for r in t3_rows} == {"A_jev_V", "A_gdec_V", "C_ghyd_V"}
     assert {r.render_variant for r in t3_rows} == {
-        "labeled_margins",
+        "clean_default",
         "dark_low_contrast",
         "thin_alt_font",
         "tilt_blur",

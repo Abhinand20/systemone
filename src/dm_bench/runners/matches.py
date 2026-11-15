@@ -199,6 +199,8 @@ async def run_matches_experiment(
     if not selected_opponents:
         raise ValueError("opponents must be non-empty")
 
+    default_render_variant = game_cfg.default_render_variant
+
     results_base = root / "experiments" / "results" / experiment_id
     if resume_run_id is not None:
         run_id = resume_run_id
@@ -265,7 +267,7 @@ async def run_matches_experiment(
             mock_mode=mock,
             pilot_mode=pilot,
             rows=target_row_ids,
-            render_variants=["clean_default"],
+            render_variants=[default_render_variant],
             text_formats=["json_canonical"],
             action_modes=list(selected_modes),
             max_cost_usd=max_cost_usd,
@@ -320,7 +322,7 @@ async def run_matches_experiment(
         png_bytes = render_ttt_png(
             board=state.board,
             player_to_move=state.player_to_move,
-            variant="clean_default",
+            variant=default_render_variant,
             position_id="t6",
         )
         saved = media_store.save_frame(ImageFrame(png_bytes=png_bytes))
@@ -384,7 +386,7 @@ async def run_matches_experiment(
                     legal_actions=list(legal_keys),
                     action_mode=spec.action_mode,
                 )
-                render_variant = "clean_default" if row_cfg.use_vision else None
+                render_variant = default_render_variant if row_cfg.use_vision else None
                 text_format = "json_canonical" if row_cfg.use_text else None
                 frames: list[ImageFrame] = [_get_clean_frame(state)] if row_cfg.use_vision else []
                 state_text = (

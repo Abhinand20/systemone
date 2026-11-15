@@ -1406,13 +1406,14 @@ def compute_dm_calibration(
 
 
 def select_core_t2_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLogRow]:
-    """Select baseline Track 1 (T1+T2) decisions in clean_default + json_canonical + all_9."""
+    """Select baseline Track 1 (T1+T2) decisions in default visual (labeled_margins/clean_default) + json_canonical + all_9."""
+    baseline_variants = (None, "labeled_margins", "clean_default")
     primary = [
         d
         for d in decisions
         if d.experiment_id in {"T2", "T1_T2", "T1+T2"}
         and d.action_mode == "all_9"
-        and d.render_variant in (None, "clean_default")
+        and d.render_variant in baseline_variants
         and d.text_format in (None, "json_canonical")
     ]
     if primary:
@@ -1423,7 +1424,7 @@ def select_core_t2_decisions(decisions: Sequence[DecisionLogRow]) -> list[Decisi
         for d in decisions
         if d.experiment_id == "T1"
         and d.action_mode == "all_9"
-        and d.render_variant in (None, "clean_default")
+        and d.render_variant in baseline_variants
         and d.text_format in (None, "json_canonical")
     ]
     if t1_only:
@@ -1434,41 +1435,53 @@ def select_core_t2_decisions(decisions: Sequence[DecisionLogRow]) -> list[Decisi
         for d in decisions
         if d.experiment_id not in {"M0_smoke", "T3", "T4", "T5", "T6", "H2H"}
         and d.action_mode == "all_9"
-        and d.render_variant in (None, "clean_default")
+        and d.render_variant in baseline_variants
         and d.text_format in (None, "json_canonical")
     ]
 
 
 def select_t3_decisions(decisions: Sequence[DecisionLogRow]) -> list[DecisionLogRow]:
-    """Select T3 rendering-robustness decisions, reusing clean_default baseline from T2 when absent."""
+    """Select T3 rendering-robustness decisions, reusing the baseline vision variant from T2/T1_T2 when absent."""
     t3_rows = [
         d
         for d in decisions
         if d.experiment_id == "T3"
         or (
             d.experiment_id not in {"M0_smoke", "T6", "H2H"}
-            and d.render_variant in {"labeled_margins", "dark_low_contrast", "thin_alt_font", "tilt_blur"}
+            and d.render_variant in {"dark_low_contrast", "thin_alt_font", "tilt_blur"}
         )
     ]
     if not t3_rows:
         return []
 
+    core_t2 = select_core_t2_decisions(decisions)
+    core_variants_by_row: dict[str, set[str]] = {}
+    for d in core_t2:
+        if d.render_variant in {"labeled_margins", "clean_default"}:
+            core_variants_by_row.setdefault(d.row_id, set()).add(d.render_variant)
+
     t3_row_ids = {d.row_id for d in t3_rows}
     t3_eps = {d.episode_id for d in t3_rows}
-    has_clean_in_t3 = {
-        d.row_id for d in t3_rows if d.render_variant == "clean_default"
-    }
-    missing_clean_rows = t3_row_ids - has_clean_in_t3
-    if not missing_clean_rows:
-        return t3_rows
+    t3_variants_by_row: dict[str, set[str]] = {}
+    for d in t3_rows:
+        if d.render_variant:
+            t3_variants_by_row.setdefault(d.row_id, set()).add(d.render_variant)
 
-    core_t2 = select_core_t2_decisions(decisions)
     combined = list(t3_rows)
-    for row_id in sort_row_ids(list(missing_clean_rows)):
+    for row_id in sort_row_ids(list(t3_row_ids)):
+        present_vars = t3_variants_by_row.get(row_id, set())
+        baseline_candidates = core_variants_by_row.get(row_id, set()) - present_vars
+        if not baseline_candidates:
+            continue
+        preferred = (
+            "labeled_margins"
+            if "labeled_margins" in baseline_candidates
+            else "clean_default"
+        )
         candidates = [
             d
             for d in core_t2
-            if d.row_id == row_id and d.render_variant in (None, "clean_default")
+            if d.row_id == row_id and d.render_variant == preferred
         ]
         paired = [d for d in candidates if d.episode_id in t3_eps]
         combined.extend(paired if paired else candidates)
