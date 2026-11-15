@@ -571,6 +571,7 @@ def test_index_ui_plain_english_and_no_legacy_jargon(tmp_path: Path) -> None:
 
     assert "dm-bench Trace Viewer" in html
     for expected in (
+        "Overall Results",
         "Board Puzzles",
         "Full Games",
         "Best Move Guide",
@@ -584,4 +585,108 @@ def test_index_ui_plain_english_and_no_legacy_jargon(tmp_path: Path) -> None:
         "Closed-Loop Episode Scrubber",
     ):
         assert legacy not in html
+
+
+def test_summary_endpoint_run_and_suite_scopes(tmp_path: Path) -> None:
+    _seed_synthetic_repo(tmp_path)
+
+    # Seed a run with opposite mock_mode (mock_mode=True) so suite aggregation stays isolated.
+    t3_dir = tmp_path / "experiments" / "results" / "T3" / "run_mock"
+    t3_manifest = RunManifest(
+        experiment_id="T3",
+        run_id="run_mock",
+        status="completed",
+        mock_mode=True,
+        created_at_utc="2026-11-15T02:00:00Z",
+        updated_at_utc="2026-11-15T02:01:00Z",
+        completed_at_utc="2026-11-15T02:01:00Z",
+        rows=["A_jev_V"],
+        total_decisions=2,
+        valid_decisions=2,
+        total_spent_usd=0.0,
+    )
+    t3_logger = RunLogger(t3_dir, manifest=t3_manifest)
+    t3_logger.log_decision(
+        _make_decision_row(
+            experiment_id="T3",
+            run_id="run_mock",
+            row_id="A_jev_V",
+            condition_code="A-DM-V",
+            model_key="jev_1_14_0",
+            model_id="jev-1.14.0",
+            family="decision_model",
+            episode_id="pos_0099",
+            board=["X", "X", ".", "O", "O", ".", ".", ".", "."],
+            player_to_move="X",
+            requested_action="R1C3",
+            executed_action="R1C3",
+            render_variant="tilt_blur",
+        )
+    )
+    t3_logger.log_decision(
+        _make_decision_row(
+            experiment_id="T3",
+            run_id="run_mock",
+            row_id="A_jev_V",
+            condition_code="A-DM-V",
+            model_key="jev_1_14_0",
+            model_id="jev-1.14.0",
+            family="decision_model",
+            episode_id="pos_0100",
+            board=["X", "X", ".", ".", "O", ".", ".", ".", "."],
+            player_to_move="O",
+            requested_action="R1C3",
+            executed_action="R1C3",
+            render_variant="clean_default",
+        )
+    )
+
+    app = create_app(repo_root=tmp_path)
+    client = TestClient(app)
+
+    # 1) Run scope on T1_T2/run_001
+    run_res = client.get("/api/runs/T1_T2/run_001/summary?scope=run&n_bootstrap=200")
+    assert run_res.status_code == 200
+    run_data = run_res.json()
+    assert run_data["scope"] == "run"
+    assert run_data["mock_mode"] is False
+    assert [(r["experiment_id"], r["run_id"]) for r in run_data["included_runs"]] == [
+        ("T1_T2", "run_001")
+    ]
+    lb_rows = run_data["leaderboard"]["rows"]
+    assert {r["row_id"] for r in lb_rows} == {"A_jev_V", "B_jev_T", "C_ghyd_V", "F_ghyd_T"}
+    for r in lb_rows:
+        assert r["optimal_ci_low"] <= r["optimal_accuracy"] <= r["optimal_ci_high"]
+
+    tactical_cats = set(run_data["tactical_breakdown"]["categories"])
+    assert "immediate_win" in tactical_cats
+    assert "jev_1_14_0" in run_data["calibration"]["by_model"]
+    assert run_data["full_games"]["rows"] == []
+
+    # 2) Suite scope on T1_T2/run_001 combines T1_T2 + T6 (both mock_mode=False) and excludes T3/run_mock
+    suite_res = client.get("/api/runs/T1_T2/run_001/summary?scope=suite&n_bootstrap=200")
+    assert suite_res.status_code == 200
+    suite_data = suite_res.json()
+    assert suite_data["scope"] == "suite"
+    included_pairs = {(r["experiment_id"], r["run_id"]) for r in suite_data["included_runs"]}
+    assert included_pairs == {("T1_T2", "run_001"), ("T6", "run_t6")}
+    assert len(suite_data["full_games"]["rows"]) == 2
+
+    # 3) Suite scope on mock run T3/run_mock stays isolated to mock runs only
+    mock_res = client.get("/api/runs/T3/run_mock/summary?scope=suite&n_bootstrap=200")
+    assert mock_res.status_code == 200
+    mock_data = mock_res.json()
+    assert mock_data["mock_mode"] is True
+    assert [(r["experiment_id"], r["run_id"]) for r in mock_data["included_runs"]] == [
+        ("T3", "run_mock")
+    ]
+    assert {"immediate_win", "forced_block"}.issubset(
+        set(mock_data["tactical_breakdown"]["categories"])
+    )
+    assert mock_data["full_games"]["rows"] == []
+
+    # 4) Missing run and path validation
+    assert client.get("/api/runs/T1_T2/does_not_exist/summary").status_code == 404
+    assert client.get("/api/runs/T1_T2/..%5Cetc/summary").status_code == 400
+    assert client.get("/api/runs/bad..exp/run_001/summary").status_code == 400
 

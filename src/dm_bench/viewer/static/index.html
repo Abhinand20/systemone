@@ -46,6 +46,15 @@
       min-height: 100vh;
     }
 
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
     /* Header */
     .topbar {
       position: sticky;
@@ -257,14 +266,125 @@
       border-color: rgba(56, 189, 248, 0.35);
     }
 
-    /* Tab Panels: keep panel element itself unstyled (no padding/border/margin/bg) for hidden="until-found" */
+    /* Tab Panels: keep panel element itself unstyled for hidden="until-found" */
     [role="tabpanel"][hidden="until-found"] {
       content-visibility: hidden;
     }
     .tab-panel-inner {
-      padding: 16px 22px 40px;
+      padding: 16px 22px 44px;
       max-width: 1680px;
       margin: 0 auto;
+    }
+
+    /* Overview Scope Bar & Dashboard */
+    .scope-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+    .segmented {
+      display: inline-flex;
+      background: var(--surface-3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 4px;
+    }
+    .seg-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .seg-btn:hover {
+      background: rgba(148, 163, 184, 0.08);
+      border-color: transparent;
+      color: var(--text);
+    }
+    .seg-btn[aria-pressed="true"] {
+      background: var(--accent-soft);
+      border-color: rgba(56, 189, 248, 0.45);
+      color: #e0f2fe;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 1200px) {
+      .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 13px 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .kpi-card.kpi-green { border-top: 3px solid var(--green); }
+    .kpi-card.kpi-blue { border-top: 3px solid var(--accent); }
+    .kpi-card.kpi-violet { border-top: 3px solid var(--violet); }
+    .kpi-card.kpi-amber { border-top: 3px solid var(--amber); }
+    .kpi-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .kpi-value {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      font-family: var(--mono);
+    }
+    .kpi-who {
+      font-size: 13px;
+      font-weight: 600;
+      color: #bae6fd;
+    }
+    .kpi-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 1160px) {
+      .charts-row { grid-template-columns: 1fr; }
+    }
+    .chart-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .section-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
     }
 
     /* Callouts & Banners inside tabs */
@@ -330,7 +450,7 @@
     .badge-violet { background: var(--violet-soft); color: #ddd6fe; border-color: rgba(167,139,250,0.35); }
     .badge-slate { background: rgba(148,163,184,0.14); color: #cbd5e1; border-color: rgba(148,163,184,0.28); }
 
-    /* Tab 1 Layout */
+    /* Shared Panels */
     .split-layout {
       display: grid;
       grid-template-columns: 370px 1fr;
@@ -359,8 +479,145 @@
       font-weight: 700;
       font-size: 13px;
     }
+    .panel-sub {
+      font-weight: 500;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
     .panel-body { padding: 14px; }
 
+    /* Overview Tables & Sortable Table (modern-web-guidance: sortable-table) */
+    .table-wrap {
+      overflow: auto;
+      max-inline-size: 100%;
+      container-type: inline-size;
+    }
+    .table-wrap.bounded-height {
+      max-block-size: min(320px, 45vh);
+    }
+    table.data-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 12.5px;
+    }
+    table.data-table caption {
+      caption-side: top;
+      text-align: left;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      background: rgba(13, 20, 36, 0.5);
+      border-bottom: 1px solid var(--border);
+    }
+    table.data-table th,
+    table.data-table td {
+      padding: 8px 11px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    table.data-table thead th {
+      background: var(--surface-3);
+      color: var(--text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-weight: 700;
+    }
+    table.data-table.sortable th:has(> button) {
+      padding: 0;
+    }
+    table.data-table.sortable th > button {
+      width: 100%;
+      min-height: 36px;
+      padding: 8px 11px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      color: inherit;
+      font-size: inherit;
+      font-weight: inherit;
+      text-transform: inherit;
+      letter-spacing: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      text-align: left;
+    }
+    table.data-table.sortable th > button:hover {
+      background: rgba(56, 189, 248, 0.08);
+      color: var(--text);
+    }
+    table.data-table.sortable th[aria-sort] > button {
+      color: var(--accent);
+    }
+    .sort-icon::after {
+      content: " ⇅";
+      opacity: 0.4;
+      font-size: 10px;
+    }
+    th[aria-sort="ascending"] .sort-icon::after {
+      content: " ▲";
+      opacity: 1;
+    }
+    th[aria-sort="descending"] .sort-icon::after {
+      content: " ▼";
+      opacity: 1;
+    }
+    table.data-table tbody tr {
+      view-transition-name: match-element;
+    }
+    table.data-table tbody tr:hover td,
+    table.data-table tbody tr:hover th[scope="row"] {
+      background: rgba(56, 189, 248, 0.06);
+    }
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-group(*),
+      ::view-transition-old(*),
+      ::view-transition-new(*) {
+        animation: none;
+      }
+    }
+
+    .mini-btn {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 5px;
+    }
+    .heat-cell-btn {
+      width: 100%;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      font-weight: 700;
+      text-align: center;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text);
+    }
+    .heat-cell-btn:hover {
+      filter: brightness(1.18);
+      border-color: var(--accent);
+    }
+
+    .outcome-stack {
+      display: flex;
+      width: 140px;
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #020617;
+      border: 1px solid var(--border);
+    }
+    .stack-win { background: var(--green); height: 100%; }
+    .stack-draw { background: var(--accent); height: 100%; }
+    .stack-loss-b { background: var(--amber); height: 100%; }
+    .stack-loss-i { background: var(--rose); height: 100%; }
+
+    /* Tab 1 Layout */
     .decision-list {
       max-height: 74vh;
       overflow-y: auto;
@@ -661,13 +918,7 @@
       color: var(--text-muted);
     }
 
-    /* Tab 2 Accessible Responsive Table (modern-web-guidance: responsive-table) */
-    .table-wrap {
-      overflow: auto;
-      max-inline-size: 100%;
-      max-block-size: min(320px, 45vh);
-      container-type: inline-size;
-    }
+    /* Tab 2 Responsive Table */
     table.episodes-table {
       width: 100%;
       border-collapse: separate;
@@ -802,13 +1053,6 @@
       color: var(--text-muted);
       font-size: 13px;
     }
-    .empty-actions {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 8px;
-      margin-top: 12px;
-    }
     .mono { font-family: var(--mono); }
     .muted { color: var(--text-muted); }
     .variant-pills {
@@ -849,13 +1093,16 @@
         <div class="run-banner-title-row">
           <span class="run-banner-title">Loading saved benchmark runs…</span>
         </div>
-        <div class="run-banner-desc">Choose a run above to explore how each AI model read the board and picked its moves.</div>
+        <div class="run-banner-desc">Choose a run above to view overall accuracy, cost/speed charts, and move-by-move traces.</div>
       </div>
     </div>
   </section>
 
   <nav class="tabs" role="tablist" aria-label="Benchmark views">
-    <button type="button" role="tab" class="tab-btn" id="tab-btn-offline" data-tab="offline" aria-selected="true" tabindex="0">
+    <button type="button" role="tab" class="tab-btn" id="tab-btn-overview" data-tab="overview" aria-selected="true" tabindex="0">
+      Overall Results &amp; Leaderboard
+    </button>
+    <button type="button" role="tab" class="tab-btn" id="tab-btn-offline" data-tab="offline" aria-selected="false" tabindex="-1">
       Board Puzzles · Compare Models
       <span id="tab-offline-count" class="tab-count">0</span>
     </button>
@@ -866,8 +1113,28 @@
   </nav>
 
   <main>
+    <!-- TAB 0: Overall Results & Leaderboard -->
+    <section id="tab-overview" role="tabpanel" aria-labelledby="tab-btn-overview">
+      <div class="tab-panel-inner">
+        <div class="scope-bar">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
+            <span class="muted" style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;">Metrics Scope</span>
+            <div class="segmented" role="group" aria-label="Metrics aggregation scope">
+              <button type="button" class="seg-btn" id="scope-suite-btn" data-scope="suite" aria-pressed="true">All Latest Runs Combined</button>
+              <button type="button" class="seg-btn" id="scope-run-btn" data-scope="run" aria-pressed="false">Selected Run Only</button>
+            </div>
+          </div>
+          <div id="overview-included-badges" class="variant-pills"></div>
+        </div>
+
+        <div id="overview-content">
+          <div class="empty-state">Computing overall metrics and confidence intervals…</div>
+        </div>
+      </div>
+    </section>
+
     <!-- TAB 1: Board Puzzles & Model Comparison -->
-    <section id="tab-offline" role="tabpanel" aria-labelledby="tab-btn-offline">
+    <section id="tab-offline" role="tabpanel" aria-labelledby="tab-btn-offline" hidden="until-found">
       <div class="tab-panel-inner">
         <div id="offline-run-notice" class="notice-bar" hidden>
           <p>This run recorded full start-to-finish games. Each entry below is an individual turn from a game — switch to <strong>Full Games · Turn-by-Turn Replay</strong> to watch complete matches from opening move to final whistle.</p>
@@ -979,7 +1246,7 @@
               <span id="episodes-count" class="mono muted">0</span>
             </div>
           </div>
-          <div tabindex="0" role="region" aria-label="Completed Tic-Tac-Toe games" class="table-wrap">
+          <div tabindex="0" role="region" aria-label="Completed Tic-Tac-Toe games" class="table-wrap bounded-height">
             <table class="episodes-table">
               <thead>
                 <tr>
@@ -1033,31 +1300,37 @@
     const EXPERIMENT_META = {
       M0_smoke: {
         title: "Quick Smoke Check",
+        short: "Smoke Check",
         kind: "puzzles",
         desc: "Verifies board image rendering, text prompts, and every AI model adapter end to end.",
       },
       T1_T2: {
         title: "Core Board Puzzles (All 9 Setups)",
+        short: "Core Board Puzzles",
         kind: "puzzles",
         desc: "Compares TypeSafe Jev, Gemini Decision 1, and Gemini 4 Hydrogen side by side using Image Only, Text Only, and Image + Text.",
       },
       T3: {
         title: "Visual Stress Tests",
+        short: "Visual Stress Tests",
         kind: "puzzles",
         desc: "Tests image-reading setups under tougher board styles: row/column margins, dark low-contrast colors, thin fonts, and tilt/blur.",
       },
       T4: {
         title: "Empty-Squares-Only vs All 9 Squares",
+        short: "Empty-Squares-Only",
         kind: "puzzles",
         desc: "Measures whether restricting choices to empty squares stops illegal moves or still harms move quality.",
       },
       T5: {
         title: "Text Prompt Format Variations",
+        short: "Text Prompt Formats",
         kind: "puzzles",
         desc: "Tests text-reading models across Standard JSON, ASCII Grid, Coordinate List, and JSON + Move History formats.",
       },
       T6: {
         title: "Full Games vs Random & Perfect AI",
+        short: "Full Games vs AI",
         kind: "games",
         desc: "Models play complete Tic-Tac-Toe matches from start to finish against a Random player and an unbeatable Perfect AI.",
       },
@@ -1073,6 +1346,12 @@
       C_ghyd_V: { model: "Gemini 4 Hydrogen", familyLabel: "General VLM", modality: "Image Only", modBadgeCls: "badge-blue", modelOrder: 2, modOrder: 0 },
       F_ghyd_T: { model: "Gemini 4 Hydrogen", familyLabel: "General LLM", modality: "Text Only", modBadgeCls: "badge-violet", modelOrder: 2, modOrder: 1 },
       E_ghyd_VT: { model: "Gemini 4 Hydrogen", familyLabel: "General VLM", modality: "Image + Text", modBadgeCls: "badge-green", modelOrder: 2, modOrder: 2 },
+    };
+
+    const MODEL_KEY_NAMES = {
+      jev_1_14_0: "TypeSafe Jev (jev-1.14.0)",
+      gemini_decision_1: "Gemini Decision 1",
+      gemini_4_hydrogen: "Gemini 4 Hydrogen",
     };
 
     const CONDITION_LABELS = {
@@ -1136,7 +1415,9 @@
     const state = {
       runs: [],
       selectedRun: null,
-      activeTab: "offline",
+      activeTab: "overview",
+      summaryScope: "suite",
+      currentSummary: null,
       decisions: [],
       decisionsTotal: 0,
       decisionsOffset: 0,
@@ -1169,7 +1450,17 @@
     function fmtCost(val) {
       if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
       const n = Number(val);
-      return n > 0 && n < 0.001 ? `$${n.toFixed(5)}` : `$${n.toFixed(3)}`;
+      if (n === 0) return "$0.00";
+      if (Math.abs(n) < 0.001) return `$${n.toFixed(5)}`;
+      if (Math.abs(n) < 0.1) return `$${n.toFixed(4)}`;
+      return `$${n.toFixed(3)}`;
+    }
+
+    function fmtSignedCost(val) {
+      if (val === null || val === undefined || Number.isNaN(Number(val))) return "—";
+      const n = Number(val);
+      const sign = n > 0 ? "+" : (n < 0 ? "-" : "");
+      return `${sign}${fmtCost(Math.abs(n))}`;
     }
 
     function fmtNum(val, digits = 3) {
@@ -1216,6 +1507,10 @@
       return `${m.model} · ${m.modality} (${rowId})`;
     }
 
+    function fmtModelKey(mkey) {
+      return MODEL_KEY_NAMES[mkey] || mkey || "Unknown";
+    }
+
     function fmtCondition(code) {
       return CONDITION_LABELS[code] || code || "—";
     }
@@ -1245,11 +1540,11 @@
       return OPPONENT_LABELS[opp] || opp;
     }
 
-    function fmtSquare(code, short = false) {
+    function fmtSquare(code) {
       if (!code) return "None";
       const name = CELL_NAMES[code];
       if (!name) return String(code);
-      return short ? `${name} (${code})` : `${name} (${code})`;
+      return `${name} (${code})`;
     }
 
     function fmtStateOutcome(val, player) {
@@ -1263,6 +1558,15 @@
     function fmtTermination(reason) {
       if (!reason) return "—";
       return TERMINATION_LABELS[reason] || reason.replaceAll("_", " ");
+    }
+
+    function heatStyle(acc) {
+      if (acc === null || acc === undefined || Number.isNaN(Number(acc))) return "";
+      const a = Math.max(0, Math.min(1, Number(acc)));
+      if (a >= 0.85) return "background: rgba(16, 185, 129, 0.30); color: #d1fae5;";
+      if (a >= 0.65) return "background: rgba(16, 185, 129, 0.17); color: #a7f3d0;";
+      if (a >= 0.45) return "background: rgba(245, 158, 11, 0.20); color: #fde68a;";
+      return "background: rgba(239, 68, 68, 0.22); color: #fecaca;";
     }
 
     function statusInfo(row) {
@@ -1412,7 +1716,7 @@
             const shortName = CELL_NAMES[key] || key;
             const tag = isOpt ? "Best" : (isIllegal ? "Taken" : "Empty");
             return `
-              <div class="prob-row" title="${esc(fmtSquare(key))} · ${tag} · ${(pct).toFixed(1)}%">
+              <div class="prob-row" title="${esc(fmtSquare(key))} · ${tag} · ${pct.toFixed(1)}%">
                 <span class="prob-key ${isChosen ? "chosen" : ""}">${isChosen ? "▶" : " "} ${esc(shortName)}</span>
                 <div class="prob-bar-bg">
                   <div class="prob-bar-fill ${fillCls}" style="width:${pct.toFixed(1)}%"></div>
@@ -1450,7 +1754,8 @@
     }
 
     function switchTab(nextTab, { focus = false } = {}) {
-      state.activeTab = nextTab === "episodes" ? "episodes" : "offline";
+      const valid = nextTab === "offline" || nextTab === "episodes" ? nextTab : "overview";
+      state.activeTab = valid;
       const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
       for (const btn of tabs) {
         const active = btn.dataset.tab === state.activeTab;
@@ -1458,14 +1763,13 @@
         btn.setAttribute("tabindex", active ? "0" : "-1");
         if (focus && active) btn.focus();
       }
-      const offlinePanel = document.getElementById("tab-offline");
-      const episodesPanel = document.getElementById("tab-episodes");
-      if (state.activeTab === "offline") {
-        offlinePanel.hidden = false;
-        episodesPanel.hidden = "until-found";
-      } else {
-        episodesPanel.hidden = false;
-        offlinePanel.hidden = "until-found";
+      const panels = {
+        overview: document.getElementById("tab-overview"),
+        offline: document.getElementById("tab-offline"),
+        episodes: document.getElementById("tab-episodes"),
+      };
+      for (const [key, panel] of Object.entries(panels)) {
+        panel.hidden = key === state.activeTab ? false : "until-found";
       }
     }
 
@@ -1589,7 +1893,9 @@
 
     function renderEmptyRuns() {
       renderRunBanner(null);
-      document.getElementById("decision-list").innerHTML = '<div class="empty-state">No experiment runs found yet. Run <code>bench smoke --mock</code> or <code>bench eval --mock --pilot</code>.</div>';
+      document.getElementById("overview-included-badges").innerHTML = "";
+      document.getElementById("overview-content").innerHTML = '<div class="empty-state">No experiment runs found yet. Run <code>bench smoke --mock</code> or <code>bench eval --mock --pilot</code>.</div>';
+      document.getElementById("decision-list").innerHTML = '<div class="empty-state">No experiment runs found yet.</div>';
       document.getElementById("matrix-detail").innerHTML = '<div class="empty-state">No run selected.</div>';
       document.getElementById("episodes-tbody").innerHTML = '<tr><td colspan="10" class="empty-state">No run selected.</td></tr>';
       document.getElementById("replay-body").innerHTML = '<div class="empty-state">No run selected.</div>';
@@ -1605,7 +1911,7 @@
       });
     }
 
-    async function onRunChanged(idx) {
+    async function onRunChanged(idx, { targetTab = null } = {}) {
       state.selectedRun = state.runs[idx] || null;
       state.decisionsOffset = 0;
       state.selectedDecisionKey = null;
@@ -1629,10 +1935,1043 @@
       const firstGameRunIdx = state.runs.findIndex((r) => Number(r.total_episodes ?? 0) > 0);
       document.getElementById("guide-to-t6-btn").hidden = firstGameRunIdx < 0;
 
-      switchTab(isGameRun ? "episodes" : "offline");
-      await Promise.all([loadDecisions(), loadEpisodes()]);
+      if (targetTab) {
+        switchTab(targetTab);
+      } else if (state.activeTab === "offline" && isGameRun) {
+        switchTab("episodes");
+      } else if (state.activeTab === "episodes" && !isGameRun) {
+        switchTab("offline");
+      }
+
+      await Promise.all([loadSummary(), loadDecisions(), loadEpisodes()]);
     }
 
+    // --- Tab 0: Overall Results & Leaderboard ---
+    async function loadSummary() {
+      if (!state.selectedRun) return;
+      const { experiment_id, run_id } = state.selectedRun;
+      const contentEl = document.getElementById("overview-content");
+      contentEl.innerHTML = '<div class="empty-state">Computing overall metrics, confidence intervals, and charts…</div>';
+      try {
+        const data = await fetchJson(
+          `/api/runs/${encodeURIComponent(experiment_id)}/${encodeURIComponent(run_id)}/summary?scope=${encodeURIComponent(state.summaryScope)}&n_bootstrap=1000`
+        );
+        state.currentSummary = data;
+        renderSummary();
+      } catch (err) {
+        contentEl.innerHTML = `<div class="empty-state">Failed to compute summary: ${esc(err.message)}</div>`;
+      }
+    }
+
+    function renderAccuracyCiChart(rows) {
+      if (!rows || rows.length === 0) {
+        return '<div class="empty-state">No board accuracy rows available in this scope.</div>';
+      }
+      const rowH = 38;
+      const topPad = 24;
+      const botPad = 32;
+      const leftPad = 198;
+      const rightPad = 56;
+      const width = 680;
+      const plotW = width - leftPad - rightPad;
+      const height = topPad + rows.length * rowH + botPad;
+
+      const ticks = [0, 25, 50, 75, 100];
+      const grid = ticks.map((t) => {
+        const x = leftPad + (t / 100) * plotW;
+        return `
+          <line x1="${x.toFixed(1)}" y1="${topPad - 4}" x2="${x.toFixed(1)}" y2="${height - botPad}" stroke="#253349" stroke-dasharray="3 3" stroke-width="1"/>
+          <text x="${x.toFixed(1)}" y="${height - botPad + 16}" text-anchor="middle" fill="#94a3b8" font-size="10.5" font-family="ui-monospace, monospace">${t}%</text>
+        `;
+      }).join("");
+
+      const bars = rows.map((r, i) => {
+        const rm = getRowMeta(r.row_id);
+        const y = topPad + i * rowH;
+        const optPct = (Number(r.optimal_accuracy ?? 0) * 100);
+        const ciLo = (Number(r.optimal_ci_low ?? r.optimal_accuracy ?? 0) * 100);
+        const ciHi = (Number(r.optimal_ci_high ?? r.optimal_accuracy ?? 0) * 100);
+        const illPct = (Number(r.illegal_rate ?? 0) * 100);
+
+        const optW = Math.max(0, Math.min(plotW, (optPct / 100) * plotW));
+        const xLo = leftPad + Math.max(0, Math.min(100, ciLo)) / 100 * plotW;
+        const xHi = leftPad + Math.max(0, Math.min(100, ciHi)) / 100 * plotW;
+        const illW = Math.max(0, Math.min(plotW, (illPct / 100) * plotW));
+        const hasIllegal = illPct > 0.05;
+        const barColor = optPct >= 80 ? "#10b981" : (optPct >= 50 ? "#38bdf8" : "#f59e0b");
+        const barY = hasIllegal ? y + 4 : y + 6;
+        const barH = hasIllegal ? 14 : 18;
+        const midY = barY + barH / 2;
+
+        return `
+          <g>
+            <title>${esc(rm.model)} · ${esc(rm.modality)} (${esc(r.row_id)}): ${optPct.toFixed(1)}% Best-Move [95% CI ${ciLo.toFixed(1)}%–${ciHi.toFixed(1)}%], ${illPct.toFixed(1)}% Illegal, n=${r.n}</title>
+            <text x="${leftPad - 10}" y="${y + 15}" text-anchor="end" fill="#e2e8f0" font-size="11.5" font-weight="600">${esc(rm.model)}</text>
+            <text x="${leftPad - 10}" y="${y + 28}" text-anchor="end" fill="#94a3b8" font-size="10">${esc(rm.modality)}</text>
+            <rect x="${leftPad}" y="${barY}" width="${optW.toFixed(1)}" height="${barH}" rx="3" fill="${barColor}" fill-opacity="0.88"/>
+            <line x1="${xLo.toFixed(1)}" y1="${midY.toFixed(1)}" x2="${xHi.toFixed(1)}" y2="${midY.toFixed(1)}" stroke="#f8fafc" stroke-width="1.6"/>
+            <line x1="${xLo.toFixed(1)}" y1="${(midY - 3.5).toFixed(1)}" x2="${xLo.toFixed(1)}" y2="${(midY + 3.5).toFixed(1)}" stroke="#f8fafc" stroke-width="1.5"/>
+            <line x1="${xHi.toFixed(1)}" y1="${(midY - 3.5).toFixed(1)}" x2="${xHi.toFixed(1)}" y2="${(midY + 3.5).toFixed(1)}" stroke="#f8fafc" stroke-width="1.5"/>
+            <text x="${(Math.max(leftPad + optW, xHi) + 6).toFixed(1)}" y="${(barY + barH - 2).toFixed(1)}" fill="#e2e8f0" font-size="11" font-family="ui-monospace, monospace" font-weight="700">${optPct.toFixed(1)}%</text>
+            ${hasIllegal ? `
+              <rect x="${leftPad}" y="${y + 21}" width="${Math.max(2, illW).toFixed(1)}" height="7" rx="2" fill="#fb7185" fill-opacity="0.9"/>
+              <text x="${(leftPad + Math.max(2, illW) + 5).toFixed(1)}" y="${y + 28}" fill="#fda4af" font-size="9.5" font-family="ui-monospace, monospace">${illPct.toFixed(1)}% illegal</text>
+            ` : ""}
+          </g>
+        `;
+      }).join("");
+
+      return `
+        <svg viewBox="0 0 ${width} ${height}" class="chart-svg" role="img" aria-label="Best-move accuracy and illegal move rate chart with 95% confidence intervals">
+          <g transform="translate(${leftPad}, 12)">
+            <rect x="0" y="-8" width="10" height="10" rx="2" fill="#10b981"/>
+            <text x="14" y="0" fill="#cbd5e1" font-size="10.5">Best-Move Accuracy % (white line = 95% CI)</text>
+            <rect x="258" y="-8" width="10" height="10" rx="2" fill="#fb7185"/>
+            <text x="272" y="0" fill="#fda4af" font-size="10.5">Illegal Pick %</text>
+          </g>
+          ${grid}
+          ${bars}
+        </svg>
+      `;
+    }
+
+    function renderParetoChart(rows) {
+      if (!rows || rows.length === 0) {
+        return '<div class="empty-state">No cost/accuracy points available.</div>';
+      }
+      const W = 540;
+      const H = Math.max(280, Math.min(390, rows.length * 36 + 40));
+      const L = 54;
+      const R = 28;
+      const T = 26;
+      const B = 44;
+      const PW = W - L - R;
+      const PH = H - T - B;
+
+      const pts = rows.map((r) => ({
+        row: r,
+        rm: getRowMeta(r.row_id),
+        cost: Number(r.cost_per_100_decisions_usd ?? 0),
+        acc: Number(r.optimal_accuracy ?? 0) * 100,
+      }));
+      const maxCost = Math.max(0.001, ...pts.map((p) => p.cost)) * 1.15;
+
+      const sx = (c) => L + (c / maxCost) * PW;
+      const sy = (a) => T + PH - (Math.max(0, Math.min(100, a)) / 100) * PH;
+
+      // Pareto frontier: lowest cost first, track running max accuracy
+      const sorted = pts.slice().sort((a, b) => a.cost - b.cost || b.acc - a.acc);
+      const frontier = [];
+      let bestAcc = -1;
+      for (const p of sorted) {
+        if (p.acc > bestAcc + 1e-6) {
+          frontier.push(p);
+          bestAcc = p.acc;
+        }
+      }
+
+      const yTicks = [0, 25, 50, 75, 100];
+      const xTicks = [0, 0.25, 0.5, 0.75, 1.0].map((f) => f * maxCost);
+
+      const gridY = yTicks.map((v) => {
+        const y = sy(v);
+        return `
+          <line x1="${L}" y1="${y.toFixed(1)}" x2="${L + PW}" y2="${y.toFixed(1)}" stroke="#253349" stroke-dasharray="3 3"/>
+          <text x="${L - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" fill="#94a3b8" font-size="10" font-family="ui-monospace, monospace">${v}%</text>
+        `;
+      }).join("");
+
+      const gridX = xTicks.map((v) => {
+        const x = sx(v);
+        const lbl = v === 0 ? "$0" : (v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(3)}`);
+        return `
+          <line x1="${x.toFixed(1)}" y1="${T}" x2="${x.toFixed(1)}" y2="${T + PH}" stroke="#1e293b" stroke-dasharray="3 3"/>
+          <text x="${x.toFixed(1)}" y="${T + PH + 16}" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="ui-monospace, monospace">${lbl}</text>
+        `;
+      }).join("");
+
+      const frontierPath = frontier.length >= 2
+        ? `<polyline fill="none" stroke="#10b981" stroke-width="2" stroke-dasharray="5 4" points="${frontier.map((p) => `${sx(p.cost).toFixed(1)},${sy(p.acc).toFixed(1)}`).join(" ")}"/>`
+        : "";
+
+      const markers = pts.map((p, idx) => {
+        const cx = sx(p.cost);
+        const cy = sy(p.acc);
+        const isDm = p.row.family === "decision_model";
+        const color = isDm ? "#38bdf8" : "#a78bfa";
+        const shortName = `${p.rm.model.split(" ")[0]} · ${p.rm.modality === "Image Only" ? "Img" : (p.rm.modality === "Text Only" ? "Txt" : "Img+Txt")}`;
+        const labelX = cx > L + PW * 0.72 ? cx - 9 : cx + 9;
+        const anchor = cx > L + PW * 0.72 ? "end" : "start";
+        const labelY = cy + (idx % 2 === 0 ? -7 : 12);
+        const shape = isDm
+          ? `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="5.5" fill="${color}" stroke="#080d1a" stroke-width="1.5"/>`
+          : `<polygon points="${cx.toFixed(1)},${(cy - 6.5).toFixed(1)} ${(cx + 6.5).toFixed(1)},${cy.toFixed(1)} ${cx.toFixed(1)},${(cy + 6.5).toFixed(1)} ${(cx - 6.5).toFixed(1)},${cy.toFixed(1)}" fill="${color}" stroke="#080d1a" stroke-width="1.5"/>`;
+        return `
+          <g>
+            <title>${esc(p.rm.model)} · ${esc(p.rm.modality)}: ${p.acc.toFixed(1)}% accuracy at ${fmtCost(p.cost)} per 100 moves</title>
+            ${shape}
+            <text x="${labelX.toFixed(1)}" y="${Math.max(T + 10, Math.min(T + PH - 4, labelY)).toFixed(1)}" text-anchor="${anchor}" fill="#cbd5e1" font-size="10">${esc(shortName)}</text>
+          </g>
+        `;
+      }).join("");
+
+      return `
+        <svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Best-move accuracy versus cost per 100 moves scatter plot">
+          <g transform="translate(${L}, 12)">
+            <circle cx="5" cy="-4" r="4.5" fill="#38bdf8"/>
+            <text x="14" y="0" fill="#cbd5e1" font-size="10.5">Decision Model</text>
+            <polygon points="120,-8.5 124.5,-4 120,0.5 115.5,-4" fill="#a78bfa"/>
+            <text x="129" y="0" fill="#cbd5e1" font-size="10.5">General LLM/VLM</text>
+            <line x1="236" y1="-4" x2="256" y2="-4" stroke="#10b981" stroke-width="2" stroke-dasharray="4 3"/>
+            <text x="262" y="0" fill="#6ee7b7" font-size="10.5">Best Cost-Accuracy Trade-off</text>
+          </g>
+          ${gridY}
+          ${gridX}
+          <text x="${L + PW / 2}" y="${H - 6}" text-anchor="middle" fill="#94a3b8" font-size="11">Estimated Cost per 100 Moves (USD)</text>
+          ${frontierPath}
+          ${markers}
+        </svg>
+      `;
+    }
+
+    function renderCalibrationCharts(calByModel) {
+      const entries = Object.entries(calByModel || {});
+      if (entries.length === 0) return "";
+      const colors = ["#38bdf8", "#10b981", "#f59e0b", "#a78bfa"];
+      const W = 480;
+      const H = 260;
+      const L = 46;
+      const R = 18;
+      const T = 26;
+      const B = 40;
+      const PW = W - L - R;
+      const PH = H - T - B;
+
+      const gridTicks = [0, 0.25, 0.5, 0.75, 1.0];
+      const gridLines = gridTicks.map((v) => {
+        const x = L + v * PW;
+        const y = T + PH - v * PH;
+        return `
+          <line x1="${L}" y1="${y.toFixed(1)}" x2="${L + PW}" y2="${y.toFixed(1)}" stroke="#253349" stroke-dasharray="3 3"/>
+          <line x1="${x.toFixed(1)}" y1="${T}" x2="${x.toFixed(1)}" y2="${T + PH}" stroke="#1e293b" stroke-dasharray="3 3"/>
+          <text x="${L - 7}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" fill="#94a3b8" font-size="10">${Math.round(v * 100)}%</text>
+          <text x="${x.toFixed(1)}" y="${T + PH + 15}" text-anchor="middle" fill="#94a3b8" font-size="10">${Math.round(v * 100)}%</text>
+        `;
+      }).join("");
+
+      const relSeries = entries.map(([mkey, cal], idx) => {
+        const color = colors[idx % colors.length];
+        const pts = (cal.reliability_bins || []).filter((b) => b.count > 0 && b.mean_confidence !== null && b.empirical_accuracy !== null);
+        if (pts.length === 0) return "";
+        const poly = pts.map((b) => `${(L + b.mean_confidence * PW).toFixed(1)},${(T + PH - b.empirical_accuracy * PH).toFixed(1)}`).join(" ");
+        const dots = pts.map((b) => {
+          const cx = L + b.mean_confidence * PW;
+          const cy = T + PH - b.empirical_accuracy * PH;
+          return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="${color}" stroke="#080d1a" stroke-width="1.2"><title>${esc(fmtModelKey(mkey))}: Conf ${(b.mean_confidence * 100).toFixed(1)}% vs Actual ${(b.empirical_accuracy * 100).toFixed(1)}% (n=${b.count})</title></circle>`;
+        }).join("");
+        return `<polyline fill="none" stroke="${color}" stroke-width="2.2" points="${poly}"/>${dots}`;
+      }).join("");
+
+      const absSeries = entries.map(([mkey, cal], idx) => {
+        const color = colors[idx % colors.length];
+        const pts = (cal.abstention_curve || []).filter((p) => p.accuracy !== null);
+        if (pts.length === 0) return "";
+        const poly = pts.map((p) => `${(L + p.coverage * PW).toFixed(1)},${(T + PH - p.accuracy * PH).toFixed(1)}`).join(" ");
+        const dots = pts.filter((_, i) => i % 2 === 0).map((p) => {
+          const cx = L + p.coverage * PW;
+          const cy = T + PH - p.accuracy * PH;
+          return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.2" fill="${color}"><title>${esc(fmtModelKey(mkey))} @ τ=${p.tau.toFixed(2)}: Answers ${(p.coverage * 100).toFixed(1)}% of moves at ${(p.accuracy * 100).toFixed(1)}% accuracy</title></circle>`;
+        }).join("");
+        return `<polyline fill="none" stroke="${color}" stroke-width="2.2" points="${poly}"/>${dots}`;
+      }).join("");
+
+      const legend = entries.map(([mkey], idx) => {
+        const color = colors[idx % colors.length];
+        return `<span class="badge badge-slate" style="border-color:${color};"><span style="width:8px;height:8px;border-radius:999px;background:${color};display:inline-block;"></span> ${esc(fmtModelKey(mkey))}</span>`;
+      }).join(" ");
+
+      return `
+        <div style="margin-bottom: 10px;" class="variant-pills">${legend}</div>
+        <div class="charts-row" style="grid-template-columns: 1fr 1fr; margin-bottom: 12px;">
+          <div class="card-box">
+            <div class="card-label"><span>Confidence vs. Actual Accuracy</span><span class="muted">Closer to diagonal = better calibrated</span></div>
+            <svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Confidence reliability curve">
+              ${gridLines}
+              <line x1="${L}" y1="${T + PH}" x2="${L + PW}" y2="${T}" stroke="#64748b" stroke-width="1.4" stroke-dasharray="5 4"/>
+              ${relSeries}
+              <text x="${L + PW / 2}" y="${H - 6}" text-anchor="middle" fill="#94a3b8" font-size="10.5">Reported Model Confidence</text>
+            </svg>
+          </div>
+          <div class="card-box">
+            <div class="card-label"><span>Accuracy When Skipping Low-Confidence Moves</span><span class="muted">Rising curve = knows when unsure</span></div>
+            <svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Selective abstention accuracy vs coverage curve">
+              ${gridLines}
+              ${absSeries}
+              <text x="${L + PW / 2}" y="${H - 6}" text-anchor="middle" fill="#94a3b8" font-size="10.5">% of Moves Answered (Threshold Sweep)</text>
+            </svg>
+          </div>
+        </div>
+      `;
+    }
+
+    const tableCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+    function wireSortableTable(tableEl, statusEl) {
+      if (!tableEl) return;
+      const handleSortButton = (btn) => {
+        const th = btn.closest("th");
+        if (!th || !tableEl.tBodies[0]) return;
+        const tbody = tableEl.tBodies[0];
+        const colIdx = th.cellIndex;
+        const type = th.dataset.type || "text";
+        const prevDir = th.getAttribute("aria-sort");
+        const nextDir = prevDir === "ascending" ? "descending" : (type === "number" && !prevDir ? "descending" : "ascending");
+
+        for (const h of tableEl.tHead.rows[0].cells) {
+          h.removeAttribute("aria-sort");
+        }
+        th.setAttribute("aria-sort", nextDir);
+
+        const factor = nextDir === "ascending" ? 1 : -1;
+        const rawRows = Array.from(tbody.rows);
+        const keyed = rawRows.map((row) => {
+          const cell = row.cells[colIdx];
+          const raw = cell ? (cell.dataset.value ?? cell.textContent.trim()) : "";
+          return { row, raw };
+        });
+
+        keyed.sort((a, b) => {
+          if (type === "number") {
+            const na = Number(a.raw);
+            const nb = Number(b.raw);
+            const aMissing = a.raw === "" || Number.isNaN(na);
+            const bMissing = b.raw === "" || Number.isNaN(nb);
+            if (aMissing && bMissing) return 0;
+            if (aMissing) return 1;
+            if (bMissing) return -1;
+            return factor * (na - nb);
+          }
+          return factor * tableCollator.compare(a.raw, b.raw);
+        });
+
+        const ordered = keyed.map((k) => k.row);
+        const reorder = () => {
+          for (const row of ordered) {
+            if (typeof tbody.moveBefore === "function") {
+              tbody.moveBefore(row, null);
+            } else {
+              tbody.appendChild(row);
+            }
+          }
+        };
+        if (typeof tableEl.startViewTransition === "function") {
+          tableEl.startViewTransition(reorder);
+        } else {
+          reorder();
+        }
+        if (statusEl) {
+          statusEl.textContent = `Sorted by ${btn.textContent.trim()}, ${nextDir}, ${ordered.length} rows`;
+        }
+      };
+
+      tableEl.addEventListener("command", (event) => {
+        if (event.command !== "--sort") return;
+        handleSortButton(event.source);
+      });
+
+      if (!("commandForElement" in HTMLButtonElement.prototype)) {
+        tableEl.tHead.querySelectorAll('button[command="--sort"]').forEach((btn) => {
+          btn.addEventListener("click", () => handleSortButton(btn));
+        });
+      }
+    }
+
+    function renderSummary() {
+      const s = state.currentSummary;
+      const contentEl = document.getElementById("overview-content");
+      const badgesEl = document.getElementById("overview-included-badges");
+      if (!s) return;
+
+      document.getElementById("scope-suite-btn").setAttribute("aria-pressed", state.summaryScope === "suite" ? "true" : "false");
+      document.getElementById("scope-run-btn").setAttribute("aria-pressed", state.summaryScope === "run" ? "true" : "false");
+
+      const incRuns = s.included_runs || [];
+      const modeBadge = s.mock_mode
+        ? '<span class="badge badge-amber">Simulated Mock Data</span>'
+        : '<span class="badge badge-green">Live Model APIs</span>';
+      const runChips = incRuns.map((r) => {
+        const meta = EXPERIMENT_META[r.experiment_id];
+        return `<span class="badge badge-slate" title="${esc(r.experiment_id)} / ${esc(r.run_id)}">${esc(meta ? meta.short : r.experiment_id)}</span>`;
+      }).join("");
+      const totals = s.totals || {};
+      badgesEl.innerHTML = `
+        ${modeBadge}
+        ${runChips}
+        <span class="mono muted" style="font-size:12px;">${totals.total_decisions ?? 0} moves · ${totals.total_episodes ?? 0} games · ${fmtCost(totals.total_spend_usd)}</span>
+      `;
+
+      const lbRows = (s.leaderboard && s.leaderboard.rows) || [];
+      const fgRows = (s.full_games && s.full_games.rows) || [];
+
+      if (lbRows.length === 0 && fgRows.length === 0) {
+        contentEl.innerHTML = '<div class="empty-state">No decisions or games recorded in the selected scope yet.</div>';
+        return;
+      }
+
+      // Compute 4 executive highlight cards
+      const bestAcc = lbRows.slice().sort((a, b) => (b.optimal_accuracy - a.optimal_accuracy) || (a.illegal_rate - b.illegal_rate) || (a.cost_per_100_decisions_usd - b.cost_per_100_decisions_usd))[0];
+      const withOpt = lbRows.filter((r) => r.optimal_count > 0 && r.cost_per_100_decisions_usd > 0);
+      const cheapest = (withOpt.length > 0 ? withOpt : lbRows).slice().sort((a, b) => a.cost_per_100_decisions_usd - b.cost_per_100_decisions_usd)[0];
+      const withLat = lbRows.filter((r) => r.p50_latency_ms !== null && r.p50_latency_ms !== undefined);
+      const fastest = withLat.slice().sort((a, b) => a.p50_latency_ms - b.p50_latency_ms)[0];
+
+      const minimaxGames = fgRows.filter((g) => g.opponent_type === "minimax");
+      const gamePool = minimaxGames.length > 0 ? minimaxGames : fgRows;
+      const bestGame = gamePool.slice().sort((a, b) => (b.non_loss_rate - a.non_loss_rate) || (b.win_rate - a.win_rate) || (a.loss_by_illegal_move_rate - b.loss_by_illegal_move_rate))[0];
+      const lowestIllegal = lbRows.slice().sort((a, b) => (a.illegal_rate - b.illegal_rate) || (b.optimal_accuracy - a.optimal_accuracy))[0];
+
+      const bestAccRm = bestAcc ? getRowMeta(bestAcc.row_id) : null;
+      const cheapestRm = cheapest ? getRowMeta(cheapest.row_id) : null;
+      const fastestRm = fastest ? getRowMeta(fastest.row_id) : null;
+
+      const kpiHtml = `
+        <div class="kpi-grid">
+          <div class="kpi-card kpi-green">
+            <span class="kpi-label">Highest Board Accuracy</span>
+            <span class="kpi-value">${bestAcc ? fmtPct(bestAcc.optimal_accuracy, 1) : "—"}</span>
+            <span class="kpi-who">${bestAccRm ? `${esc(bestAccRm.model)} · ${esc(bestAccRm.modality)}` : "No puzzle moves"}</span>
+            <span class="kpi-sub">${bestAcc ? `95% CI: ${fmtPct(bestAcc.optimal_ci_low, 1)} – ${fmtPct(bestAcc.optimal_ci_high, 1)} · ${bestAcc.illegal_count} illegal` : ""}</span>
+          </div>
+          <div class="kpi-card kpi-blue">
+            <span class="kpi-label">Lowest Cost per 100 Moves</span>
+            <span class="kpi-value">${cheapest ? fmtCost(cheapest.cost_per_100_decisions_usd) : "—"}</span>
+            <span class="kpi-who">${cheapestRm ? `${esc(cheapestRm.model)} · ${esc(cheapestRm.modality)}` : "—"}</span>
+            <span class="kpi-sub">${cheapest && cheapest.optimal_decisions_per_usd ? `${Number(cheapest.optimal_decisions_per_usd).toFixed(0)} best moves per $1` : "Cost tracked per API response"}</span>
+          </div>
+          <div class="kpi-card kpi-violet">
+            <span class="kpi-label">Fastest Median Speed</span>
+            <span class="kpi-value">${fastest ? fmtMs(fastest.p50_latency_ms) : "—"}</span>
+            <span class="kpi-who">${fastestRm ? `${esc(fastestRm.model)} · ${esc(fastestRm.modality)}` : "—"}</span>
+            <span class="kpi-sub">${fastest ? `95th percentile speed: ${fmtMs(fastest.p95_latency_ms)}` : ""}</span>
+          </div>
+          ${bestGame ? (() => {
+            const bgRm = getRowMeta(bestGame.row_id);
+            const vsLbl = fmtOpponent(bestGame.opponent_type);
+            return `
+              <div class="kpi-card kpi-amber">
+                <span class="kpi-label">Best vs. ${esc(vsLbl)}</span>
+                <span class="kpi-value">${fmtPct(bestGame.non_loss_rate, 1)}</span>
+                <span class="kpi-who">${esc(bgRm.model)} · ${esc(bgRm.modality)}</span>
+                <span class="kpi-sub">Won or tied ${bestGame.wins + bestGame.draws}/${bestGame.games} games (${esc(fmtMode(bestGame.action_mode))})</span>
+              </div>
+            `;
+          })() : `
+            <div class="kpi-card kpi-amber">
+              <span class="kpi-label">Lowest Illegal-Pick Rate</span>
+              <span class="kpi-value">${lowestIllegal ? fmtPct(lowestIllegal.illegal_rate, 1) : "—"}</span>
+              <span class="kpi-who">${lowestIllegal ? `${esc(getRowMeta(lowestIllegal.row_id).model)} · ${esc(getRowMeta(lowestIllegal.row_id).modality)}` : "—"}</span>
+              <span class="kpi-sub">${lowestIllegal ? `${lowestIllegal.illegal_count} of ${lowestIllegal.n} moves picked a taken square` : ""}</span>
+            </div>
+          `}
+        </div>
+      `;
+
+      // Charts Row
+      const chartsHtml = lbRows.length > 0 ? `
+        <div class="charts-row">
+          <div class="panel">
+            <div class="panel-header">
+              <span>Best-Move Accuracy &amp; Illegal Picks</span>
+              <span class="panel-sub">${esc(s.leaderboard.source_label || "")}</span>
+            </div>
+            <div class="panel-body">${renderAccuracyCiChart(lbRows)}</div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <span>Accuracy vs. Cost Trade-Off</span>
+              <span class="panel-sub">Higher &amp; further left is better</span>
+            </div>
+            <div class="panel-body">${renderParetoChart(lbRows)}</div>
+          </div>
+        </div>
+      ` : "";
+
+      // Main Sortable Leaderboard Table
+      const leaderboardHtml = lbRows.length > 0 ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>All Setups Leaderboard</span>
+            <span class="panel-sub">Click any column heading to sort · Click Moves or Mistakes to inspect individual boards</span>
+          </div>
+          <div id="lb-sort-status" role="status" class="visually-hidden"></div>
+          <div tabindex="0" role="region" aria-labelledby="lb-table-caption" class="table-wrap">
+            <table id="lb-table" class="data-table sortable">
+              <caption id="lb-table-caption">Overall move accuracy, illegal picks, mistake penalty, response speed, and cost (${esc(s.leaderboard.source_label || "")}).</caption>
+              <thead>
+                <tr>
+                  <th scope="col" data-type="text"><button type="button" commandfor="lb-table" command="--sort">AI Model &amp; Input<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Moves<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Best-Move %<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">When Legal %<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Illegal %<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Invalid %<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Avg Penalty<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Median Speed<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col" data-type="number"><button type="button" commandfor="lb-table" command="--sort">Cost / 100<span class="sort-icon" aria-hidden="true"></span></button></th>
+                  <th scope="col">Inspect</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${lbRows.map((r) => {
+                  const rm = getRowMeta(r.row_id);
+                  const srcExp = r.source_experiment_id || s.experiment_id;
+                  return `
+                    <tr>
+                      <td data-value="${esc(rm.model + " " + rm.modality)}">
+                        <strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span>
+                      </td>
+                      <td class="mono" data-value="${r.n}">${r.n}</td>
+                      <td class="mono" data-value="${r.optimal_accuracy}">
+                        <strong>${fmtPct(r.optimal_accuracy, 1)}</strong>
+                        <span class="muted" style="font-size:11px;">(${fmtPct(r.optimal_ci_low, 0)}–${fmtPct(r.optimal_ci_high, 0)})</span>
+                      </td>
+                      <td class="mono" data-value="${r.conditional_optimal_accuracy ?? ""}">${fmtPct(r.conditional_optimal_accuracy, 1)}</td>
+                      <td class="mono" data-value="${r.illegal_rate}">${r.illegal_rate > 0 ? `<span style="color:#fda4af;font-weight:700;">${fmtPct(r.illegal_rate, 1)}</span>` : "0.0%"}</td>
+                      <td class="mono" data-value="${r.invalid_response_rate}">${r.invalid_response_rate > 0 ? `<span style="color:#fca5a5;">${fmtPct(r.invalid_response_rate, 1)}</span>` : "0.0%"}</td>
+                      <td class="mono" data-value="${r.mean_effective_regret ?? ""}">${fmtNum(r.mean_effective_regret, 2)}</td>
+                      <td class="mono" data-value="${r.p50_latency_ms ?? ""}" title="p95: ${fmtMs(r.p95_latency_ms)}">${fmtMs(r.p50_latency_ms)}</td>
+                      <td class="mono" data-value="${r.cost_per_100_decisions_usd}">${fmtCost(r.cost_per_100_decisions_usd)}</td>
+                      <td>
+                        <div class="variant-pills">
+                          <button type="button" class="mini-btn" data-drill-puzzle-exp="${esc(srcExp)}" data-drill-row="${esc(r.row_id)}" data-drill-fail="all">Moves →</button>
+                          <button type="button" class="mini-btn" data-drill-puzzle-exp="${esc(srcExp)}" data-drill-row="${esc(r.row_id)}" data-drill-fail="failures">Mistakes →</button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : "";
+
+      // Accuracy by Board Situation Heatmap
+      const tac = s.tactical_breakdown || {};
+      const tacCats = tac.categories || [];
+      const tacRows = tac.rows || [];
+      const tacticalHtml = (tacCats.length > 0 && tacRows.length > 0) ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Accuracy by Board Situation</span>
+            <span class="panel-sub">Click any cell to inspect those exact boards</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Accuracy by board situation table" class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">AI Model &amp; Input</th>
+                  ${tacCats.map((c) => `<th scope="col" style="text-align:center;">${esc(fmtTactical(c))}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${tacRows.map((tr) => {
+                  const rm = getRowMeta(tr.row_id);
+                  return `
+                    <tr>
+                      <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                      ${tacCats.map((cat) => {
+                        const cell = (tr.cells || {})[cat];
+                        if (!cell) return '<td class="muted" style="text-align:center;">—</td>';
+                        return `
+                          <td>
+                            <button type="button" class="heat-cell-btn" style="${heatStyle(cell.optimal_accuracy)}"
+                              data-drill-puzzle-exp="${esc(tac.source_experiment_id || s.experiment_id)}"
+                              data-drill-row="${esc(tr.row_id)}"
+                              data-drill-tac="${esc(cat)}"
+                              title="${esc(rm.model)} on ${esc(fmtTactical(cat))}: ${cell.optimal_count}/${cell.n} best moves">
+                              ${fmtPct(cell.optimal_accuracy, 0)} <span style="font-weight:400;opacity:0.8;">(${cell.n})</span>
+                            </button>
+                          </td>
+                        `;
+                      }).join("")}
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : "";
+
+      // Full Games Summary Section
+      const fgSrcExp = (s.full_games && s.full_games.source_experiment_id) || "T6";
+      const fullGamesHtml = fgRows.length > 0 ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Full Games Leaderboard</span>
+            <span class="panel-sub">Green = Won · Blue = Tied · Amber = Outplayed · Red = Picked Taken Square</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Full games aggregate results" class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">AI Model &amp; Input</th>
+                  <th scope="col">Opponent</th>
+                  <th scope="col">Allowed Choices</th>
+                  <th scope="col">Games</th>
+                  <th scope="col">Outcome Split</th>
+                  <th scope="col">Win %</th>
+                  <th scope="col">Tie %</th>
+                  <th scope="col">Never Lost %</th>
+                  <th scope="col">Forfeit %</th>
+                  <th scope="col">Cost / Game</th>
+                  <th scope="col">Replay</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${fgRows.map((g) => {
+                  const rm = getRowMeta(g.row_id);
+                  const w = g.win_rate * 100;
+                  const d = g.draw_rate * 100;
+                  const lb = g.loss_by_board_rate * 100;
+                  const li = g.loss_by_illegal_move_rate * 100;
+                  return `
+                    <tr>
+                      <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                      <td>${esc(fmtOpponent(g.opponent_type))}</td>
+                      <td>${esc(fmtMode(g.action_mode))}</td>
+                      <td class="mono">${g.games}</td>
+                      <td>
+                        <div class="outcome-stack" title="Won ${w.toFixed(1)}% · Tie ${d.toFixed(1)}% · Outplayed ${lb.toFixed(1)}% · Illegal Forfeit ${li.toFixed(1)}%">
+                          <div class="stack-win" style="width:${w.toFixed(1)}%"></div>
+                          <div class="stack-draw" style="width:${d.toFixed(1)}%"></div>
+                          <div class="stack-loss-b" style="width:${lb.toFixed(1)}%"></div>
+                          <div class="stack-loss-i" style="width:${li.toFixed(1)}%"></div>
+                        </div>
+                      </td>
+                      <td class="mono">${fmtPct(g.win_rate, 1)}</td>
+                      <td class="mono">${fmtPct(g.draw_rate, 1)}</td>
+                      <td class="mono"><strong>${fmtPct(g.non_loss_rate, 1)}</strong></td>
+                      <td class="mono">${g.loss_by_illegal_move_rate > 0 ? `<span style="color:#fda4af;">${fmtPct(g.loss_by_illegal_move_rate, 1)}</span>` : "0.0%"}</td>
+                      <td class="mono">${fmtCost(g.cost_per_episode_usd)}</td>
+                      <td>
+                        <button type="button" class="mini-btn"
+                          data-drill-game-exp="${esc(fgSrcExp)}"
+                          data-drill-row="${esc(g.row_id)}"
+                          data-drill-opp="${esc(g.opponent_type)}"
+                          data-drill-mode="${esc(g.action_mode)}">Replay →</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : "";
+
+      // Visual Stress Tests (T3)
+      const rr = s.rendering_robustness || {};
+      const rrVars = rr.variants || [];
+      const rrRows = rr.rows || [];
+      const renderingHtml = (rrVars.length > 0 && rrRows.length > 0) ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Harder Board Images (Visual Stress Tests)</span>
+            <span class="panel-sub">How well image-reading models handle tilted, blurry, dark, or labeled boards</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Visual stress tests accuracy table" class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">AI Model &amp; Input</th>
+                  ${rrVars.map((v) => `<th scope="col" style="text-align:center;">${esc(fmtRender(v))}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${rrRows.map((tr) => {
+                  const rm = getRowMeta(tr.row_id);
+                  return `
+                    <tr>
+                      <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                      ${rrVars.map((v) => {
+                        const cell = (tr.cells || {})[v];
+                        if (!cell) return '<td class="muted" style="text-align:center;">—</td>';
+                        return `
+                          <td>
+                            <button type="button" class="heat-cell-btn" style="${heatStyle(cell.optimal_accuracy)}"
+                              data-drill-puzzle-exp="${esc(rr.source_experiment_id || "T3")}"
+                              data-drill-row="${esc(tr.row_id)}"
+                              data-drill-render="${esc(v)}">
+                              ${fmtPct(cell.optimal_accuracy, 0)} <span style="font-weight:400;opacity:0.8;">(${cell.n})</span>
+                            </button>
+                          </td>
+                        `;
+                      }).join("")}
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : "";
+
+      // T4 Legality Schema Ablation
+      const la = s.legality_ablation || {};
+      const laPaired = la.paired || [];
+      const laStandalone = la.standalone_legal_only || [];
+      const legalityHtml = (laPaired.length > 0 || laStandalone.length > 0) ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Offering Empty Squares Only vs. All 9 Squares</span>
+            <span class="panel-sub">${laPaired.length > 0 ? "Paired comparison on identical boards" : "Showing Empty-Squares-Only results (switch scope to All Latest Runs Combined to compare side by side)"}</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Allowed choices comparison table" class="table-wrap">
+            ${laPaired.length > 0 ? `
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">AI Model &amp; Input</th>
+                    <th scope="col">Shared Boards</th>
+                    <th scope="col">All 9 Squares Acc</th>
+                    <th scope="col">Empty Squares Only Acc</th>
+                    <th scope="col">Difference</th>
+                    <th scope="col">95% CI</th>
+                    <th scope="col">All-9 Illegal %</th>
+                    <th scope="col">Statistical Test</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${laPaired.map((item) => {
+                    const rm = getRowMeta(item.row_id);
+                    const deltaPp = item.delta_acc * 100;
+                    const sig = item.mcnemar_pvalue < 0.05;
+                    const deltaColor = deltaPp > 0.5 ? "#6ee7b7" : (deltaPp < -0.5 ? "#fca5a5" : "#cbd5e1");
+                    return `
+                      <tr>
+                        <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                        <td class="mono">${item.shared_n}</td>
+                        <td class="mono">${fmtPct(item.all_9_acc, 1)}</td>
+                        <td class="mono"><strong>${fmtPct(item.legal_only_acc, 1)}</strong></td>
+                        <td class="mono" style="color:${deltaColor};font-weight:700;">${deltaPp >= 0 ? "+" : ""}${deltaPp.toFixed(1)} pp</td>
+                        <td class="mono muted">[${(item.ci_low * 100).toFixed(1)}, ${(item.ci_high * 100).toFixed(1)}]</td>
+                        <td class="mono">${fmtPct(item.all_9_illegal_rate, 1)} → ${fmtPct(item.legal_only_illegal_rate, 1)}</td>
+                        <td>${sig ? `<span class="badge badge-green">Significant (p=${item.mcnemar_pvalue.toFixed(3)})</span>` : `<span class="badge badge-slate">Similar (p=${item.mcnemar_pvalue.toFixed(3)})</span>`}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            ` : `
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">AI Model &amp; Input</th>
+                    <th scope="col">Moves</th>
+                    <th scope="col">Empty Squares Only Acc</th>
+                    <th scope="col">Illegal %</th>
+                    <th scope="col">Median Speed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${laStandalone.map((r) => {
+                    const rm = getRowMeta(r.row_id);
+                    return `
+                      <tr>
+                        <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                        <td class="mono">${r.n}</td>
+                        <td class="mono"><strong>${fmtPct(r.optimal_accuracy, 1)}</strong></td>
+                        <td class="mono">${fmtPct(r.illegal_rate, 1)}</td>
+                        <td class="mono">${fmtMs(r.p50_latency_ms)}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            `}
+          </div>
+        </div>
+      ` : "";
+
+      // T5 Prompt Formats
+      const pf = s.prompt_formats || {};
+      const pfFmts = pf.formats || [];
+      const pfRows = pf.rows || [];
+      const formatsHtml = (pfFmts.length > 0 && pfRows.length > 0) ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Text Prompt Format Sensitivity</span>
+            <span class="panel-sub">Click any cell to view the exact prompt style and model answers</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Text prompt format sensitivity table" class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">AI Model &amp; Input</th>
+                  ${pfFmts.map((f) => `<th scope="col" style="text-align:center;">${esc(fmtTextFormat(f))}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${pfRows.map((tr) => {
+                  const rm = getRowMeta(tr.row_id);
+                  return `
+                    <tr>
+                      <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                      ${pfFmts.map((fmt) => {
+                        const cell = (tr.cells || {})[fmt];
+                        if (!cell) return '<td class="muted" style="text-align:center;">—</td>';
+                        return `
+                          <td>
+                            <button type="button" class="heat-cell-btn" style="${heatStyle(cell.optimal_accuracy)}"
+                              data-drill-puzzle-exp="${esc(pf.source_experiment_id || "T5")}"
+                              data-drill-row="${esc(tr.row_id)}"
+                              data-drill-text="${esc(fmt)}">
+                              ${fmtPct(cell.optimal_accuracy, 0)} <span style="font-weight:400;opacity:0.8;">(${cell.n})</span>
+                            </button>
+                          </td>
+                        `;
+                      }).join("")}
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : "";
+
+      // Calibration (Decision Models)
+      const cal = s.calibration || {};
+      const calByModel = cal.by_model || {};
+      const calByRow = cal.by_row || {};
+      const calibrationHtml = Object.keys(calByModel).length > 0 ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Confidence Calibration &amp; Uncertainty (Decision Models)</span>
+            <span class="panel-sub">Checks whether reported confidence matches true accuracy and whether skipping low-confidence moves helps</span>
+          </div>
+          <div class="panel-body">
+            ${renderCalibrationCharts(calByModel)}
+            <div tabindex="0" role="region" aria-label="Decision model calibration summary table" class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Model / Setup</th>
+                    <th scope="col">Moves</th>
+                    <th scope="col">Actual Acc</th>
+                    <th scope="col">Avg Confidence</th>
+                    <th scope="col" title="Expected Calibration Error (lower is better calibrated)">Calibration Gap (ECE)</th>
+                    <th scope="col">Brier Score</th>
+                    <th scope="col">Chance on Best Moves</th>
+                    <th scope="col">Chance on Taken Squares</th>
+                    <th scope="col">Acc @ ≥70% Conf</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${Object.entries(calByRow).map(([rid, c]) => {
+                    const rm = getRowMeta(rid);
+                    const pt70 = (c.abstention_curve || []).reduce((best, p) => (!best || Math.abs(p.tau - 0.7) < Math.abs(best.tau - 0.7)) ? p : best, null);
+                    return `
+                      <tr>
+                        <td><strong>${esc(rm.model)}</strong> · <span class="badge ${rm.modBadgeCls}">${esc(rm.modality)}</span></td>
+                        <td class="mono">${c.n}</td>
+                        <td class="mono">${fmtPct(c.empirical_accuracy, 1)}</td>
+                        <td class="mono">${fmtPct(c.mean_confidence, 1)}</td>
+                        <td class="mono">${fmtNum(c.ece, 3)}</td>
+                        <td class="mono">${fmtNum(c.brier_score, 3)}</td>
+                        <td class="mono">${fmtPct(c.mean_optimal_mass, 1)}</td>
+                        <td class="mono">${fmtPct(c.mean_illegal_mass, 1)}</td>
+                        <td class="mono">${pt70 && pt70.accuracy !== null ? `${fmtPct(pt70.accuracy, 1)} (${fmtPct(pt70.coverage, 0)} cov)` : "—"}</td>
+                      </tr>
+                    `;
+                  }).join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ` : "";
+
+      // Head-to-Head Paired Comparisons
+      const pc = s.paired_comparisons || {};
+      const pcGroups = [
+        ["Text Only vs. Image Only", pc.modality_text_vs_image || []],
+        ["Image + Text vs. Single Input", pc.modality_hybrid_vs_single || []],
+        ["Decision Models vs. General LLM/VLM", pc.decision_model_vs_generative || []],
+      ].filter(([, arr]) => arr.length > 0);
+
+      const comparisonsHtml = pcGroups.length > 0 ? `
+        <div class="panel">
+          <div class="panel-header">
+            <span>Head-to-Head Paired Comparisons</span>
+            <span class="panel-sub">Compares two setups on the exact same boards (positive diff = first setup won by more)</span>
+          </div>
+          <div tabindex="0" role="region" aria-label="Head-to-head paired comparisons" class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Comparison</th>
+                  <th scope="col">Boards</th>
+                  <th scope="col">Setup A Acc</th>
+                  <th scope="col">Setup B Acc</th>
+                  <th scope="col">Accuracy Diff</th>
+                  <th scope="col">95% CI</th>
+                  <th scope="col">Speed Diff</th>
+                  <th scope="col">Cost Diff / 100</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${pcGroups.flatMap(([groupTitle, items]) => [
+                  `<tr><th colspan="8" style="background:var(--surface-3);color:var(--accent);font-size:11.5px;text-transform:uppercase;letter-spacing:0.04em;">${esc(groupTitle)}</th></tr>`,
+                  ...items.map((c) => {
+                    const diffPp = c.optimal_ci.delta * 100;
+                    const ciLo = c.optimal_ci.ci_low * 100;
+                    const ciHi = c.optimal_ci.ci_high * 100;
+                    const sigColor = ciLo > 0 ? "#6ee7b7" : (ciHi < 0 ? "#fca5a5" : "#cbd5e1");
+                    const latDiff = c.latency_ci ? `${c.latency_ci.delta >= 0 ? "+" : ""}${c.latency_ci.delta.toFixed(0)} ms` : "—";
+                    const cost100Diff = fmtSignedCost(c.cost_ci.delta * 100);
+                    return `
+                      <tr>
+                        <td><strong>${esc(c.label)}</strong></td>
+                        <td class="mono">${c.shared_n}</td>
+                        <td class="mono">${fmtPct(c.optimal_ci.mean_x, 1)}</td>
+                        <td class="mono">${fmtPct(c.optimal_ci.mean_y, 1)}</td>
+                        <td class="mono" style="color:${sigColor};font-weight:700;">${diffPp >= 0 ? "+" : ""}${diffPp.toFixed(1)} pp</td>
+                        <td class="mono muted">[${ciLo.toFixed(1)}, ${ciHi.toFixed(1)}]</td>
+                        <td class="mono">${esc(latDiff)}</td>
+                        <td class="mono">${esc(cost100Diff)}</td>
+                      </tr>
+                    `;
+                  }),
+                ]).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : "";
+
+      contentEl.innerHTML = `
+        ${kpiHtml}
+        ${chartsHtml}
+        <div class="section-stack">
+          ${leaderboardHtml}
+          ${tacticalHtml}
+          ${fullGamesHtml}
+          ${renderingHtml}
+          ${legalityHtml}
+          ${formatsHtml}
+          ${calibrationHtml}
+          ${comparisonsHtml}
+        </div>
+      `;
+
+      wireSortableTable(document.getElementById("lb-table"), document.getElementById("lb-sort-status"));
+
+      contentEl.querySelectorAll("[data-drill-puzzle-exp]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          drillDownToPuzzles({
+            experimentId: btn.dataset.drillPuzzleExp,
+            rowId: btn.dataset.drillRow || "",
+            failureFilter: btn.dataset.drillFail || "all",
+            tacticalCategory: btn.dataset.drillTac || "",
+            renderVariant: btn.dataset.drillRender || "",
+            textFormat: btn.dataset.drillText || "",
+          });
+        });
+      });
+
+      contentEl.querySelectorAll("[data-drill-game-exp]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          drillDownToGames({
+            experimentId: btn.dataset.drillGameExp,
+            rowId: btn.dataset.drillRow || "",
+            opponentType: btn.dataset.drillOpp || "",
+            actionMode: btn.dataset.drillMode || "",
+          });
+        });
+      });
+    }
+
+    function findMatchingRunIndex(experimentId) {
+      if (!experimentId || state.runs.length === 0) return -1;
+      const targetMock = state.selectedRun ? Boolean(state.selectedRun.mock_mode) : null;
+      if (state.selectedRun && state.selectedRun.experiment_id === experimentId) {
+        return state.runs.findIndex(
+          (r) => r.experiment_id === state.selectedRun.experiment_id && r.run_id === state.selectedRun.run_id
+        );
+      }
+      if (targetMock !== null) {
+        const sameModeIdx = state.runs.findIndex(
+          (r) => r.experiment_id === experimentId && Boolean(r.mock_mode) === targetMock
+        );
+        if (sameModeIdx >= 0) return sameModeIdx;
+      }
+      return state.runs.findIndex((r) => r.experiment_id === experimentId);
+    }
+
+    async function drillDownToPuzzles({
+      experimentId,
+      rowId = "",
+      failureFilter = "all",
+      tacticalCategory = "",
+      renderVariant = "",
+      textFormat = "",
+    }) {
+      const targetIdx = findMatchingRunIndex(experimentId);
+      const currentIdx = state.selectedRun
+        ? state.runs.findIndex(
+            (r) => r.experiment_id === state.selectedRun.experiment_id && r.run_id === state.selectedRun.run_id
+          )
+        : -1;
+
+      if (targetIdx >= 0 && targetIdx !== currentIdx) {
+        document.getElementById("run-select").value = String(targetIdx);
+        await onRunChanged(targetIdx, { targetTab: "offline" });
+      } else {
+        switchTab("offline");
+      }
+
+      document.getElementById("f-row").value = rowId;
+      document.getElementById("f-fail").value = failureFilter || "all";
+      document.getElementById("f-tac").value = tacticalCategory;
+      document.getElementById("f-render").value = renderVariant;
+      document.getElementById("f-text").value = textFormat;
+      state.decisionsOffset = 0;
+      state.selectedDecisionKey = null;
+      await loadDecisions();
+    }
+
+    async function drillDownToGames({
+      experimentId,
+      rowId = "",
+      opponentType = "",
+      actionMode = "",
+    }) {
+      const targetIdx = findMatchingRunIndex(experimentId);
+      const currentIdx = state.selectedRun
+        ? state.runs.findIndex(
+            (r) => r.experiment_id === state.selectedRun.experiment_id && r.run_id === state.selectedRun.run_id
+          )
+        : -1;
+
+      if (targetIdx >= 0 && targetIdx !== currentIdx) {
+        document.getElementById("run-select").value = String(targetIdx);
+        await onRunChanged(targetIdx, { targetTab: "episodes" });
+      } else {
+        switchTab("episodes");
+      }
+
+      document.getElementById("ep-row").value = rowId;
+      document.getElementById("ep-opp").value = opponentType;
+      document.getElementById("ep-mode").value = actionMode;
+      document.getElementById("ep-outcome").value = "";
+      state.selectedEpisodeKey = null;
+      await loadEpisodes();
+    }
+
+    // --- Tab 1: Decisions & Board Comparison ---
     function buildDecisionQuery() {
       const params = new URLSearchParams();
       params.set("offset", String(state.decisionsOffset));
@@ -1704,7 +3043,7 @@
             <div class="decision-item-meta">
               <span>${esc(fmtTactical(d.tactical_category))}</span>
               <span>·</span>
-              <span>Picked: ${esc(fmtSquare(d.requested_action, true))}</span>
+              <span>Picked: ${esc(fmtSquare(d.requested_action))}</span>
             </div>
           </div>
         `;
@@ -1795,7 +3134,7 @@
         <span class="badge badge-blue">${esc(playerToMove || "?")}'s Turn (Move #${plyNum + 1})</span>
         ${tacticalCat ? `<span class="badge badge-amber">${esc(fmtTactical(tacticalCat))}</span>` : ""}
         <span class="badge badge-slate">Best Outcome: ${esc(fmtStateOutcome(stateValue, playerToMove))}</span>
-        <span class="badge badge-green">Best: ${esc(optActions.map((k) => fmtSquare(k, true)).join(", ") || "—")}</span>
+        <span class="badge badge-green">Best: ${esc(optActions.map((k) => fmtSquare(k)).join(", ") || "—")}</span>
       `;
 
       const rowWithFrame = rowsToDisplay.find((r) => r.frame_urls && r.frame_urls.length > 0);
@@ -1840,7 +3179,7 @@
           <div class="card-box">
             <div class="card-label">
               <span>Text Prompt (Text Input)</span>
-              <span class="muted">Prior moves: ${esc(moveHistory.map((k) => fmtSquare(k, true)).join(" → ") || "Empty board")}</span>
+              <span class="muted">Prior moves: ${esc(moveHistory.map((k) => fmtSquare(k)).join(" → ") || "Empty board")}</span>
             </div>
             <pre class="payload-box">${esc(stateText || "(No text prompt shown here — click an Image + Text or Text Only setup to view the exact text sent to the model.)")}</pre>
           </div>
@@ -1860,8 +3199,8 @@
             const cardKey = `${r.episode_id}::${r.row_id}::${r.step_idx}::${r.render_variant}::${r.text_format}::${r.action_mode}`;
             const isSelectedCard = cardKey === state.selectedDecisionKey;
             const pickedText = r.action_is_legal
-              ? fmtSquare(r.executed_action || r.requested_action, true)
-              : (r.requested_action ? `${fmtSquare(r.requested_action, true)} (Taken!)` : "None");
+              ? fmtSquare(r.executed_action || r.requested_action)
+              : (r.requested_action ? `${fmtSquare(r.requested_action)} (Taken!)` : "None");
             const confText = r.confidence !== null && r.confidence !== undefined
               ? fmtPct(r.confidence, 1)
               : "N/A (text choice)";
@@ -1943,7 +3282,7 @@
       });
     }
 
-    // Tab 2: Full Games Replay
+    // --- Tab 2: Full Games Replay ---
     function buildEpisodeQuery() {
       const params = new URLSearchParams();
       params.set("limit", "200");
@@ -2136,9 +3475,9 @@
                 <div class="kv-item"><span class="k">AI Turn / Board Move</span><span class="v">Turn ${idx + 1} · Move #${Number(step.ply ?? 0) + 1}</span></div>
                 <div class="kv-item"><span class="k">Playing As</span><span class="v">${esc(step.player_to_move || "?")}</span></div>
                 <div class="kv-item"><span class="k">Board Situation</span><span class="v">${esc(fmtTactical(step.tactical_category))}</span></div>
-                <div class="kv-item"><span class="k">AI Picked</span><span class="v">${esc(fmtSquare(step.requested_action, true))}</span></div>
-                <div class="kv-item"><span class="k">Played on Board</span><span class="v">${esc(step.action_is_legal ? fmtSquare(step.executed_action, true) : "Rejected (Square Taken)")}</span></div>
-                <div class="kv-item"><span class="k">Best Square(s)</span><span class="v">${esc((step.optimal_actions || []).map((k) => fmtSquare(k, true)).join(", ") || "—")}</span></div>
+                <div class="kv-item"><span class="k">AI Picked</span><span class="v">${esc(fmtSquare(step.requested_action))}</span></div>
+                <div class="kv-item"><span class="k">Played on Board</span><span class="v">${esc(step.action_is_legal ? fmtSquare(step.executed_action) : "Rejected (Square Taken)")}</span></div>
+                <div class="kv-item"><span class="k">Best Square(s)</span><span class="v">${esc((step.optimal_actions || []).map((k) => fmtSquare(k)).join(", ") || "—")}</span></div>
                 <div class="kv-item"><span class="k">Mistake Penalty</span><span class="v">${step.legal_regret !== null && step.legal_regret !== undefined ? `${step.legal_regret} pt(s)` : "N/A (Illegal/Invalid)"}</span></div>
                 <div class="kv-item"><span class="k">Response Time</span><span class="v">${fmtMs(step.model_latency_ms)}</span></div>
                 <div class="kv-item"><span class="k">Est. Cost · Confidence</span><span class="v">${fmtCost(step.api_cost_usd)} · ${step.confidence !== null && step.confidence !== undefined ? fmtPct(step.confidence, 1) : "N/A"}</span></div>
@@ -2193,8 +3532,19 @@
       });
     });
 
+    document.getElementById("tab-overview").addEventListener("beforematch", () => switchTab("overview"));
     document.getElementById("tab-offline").addEventListener("beforematch", () => switchTab("offline"));
     document.getElementById("tab-episodes").addEventListener("beforematch", () => switchTab("episodes"));
+
+    document.querySelectorAll("[data-scope]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const nextScope = btn.dataset.scope === "run" ? "run" : "suite";
+        if (state.summaryScope !== nextScope) {
+          state.summaryScope = nextScope;
+          loadSummary();
+        }
+      });
+    });
 
     document.getElementById("jump-to-games-btn").addEventListener("click", () => switchTab("episodes"));
     document.getElementById("guide-to-puzzles-btn").addEventListener("click", () => switchTab("offline"));
@@ -2202,7 +3552,7 @@
       const idx = state.runs.findIndex((r) => Number(r.total_episodes ?? 0) > 0);
       if (idx >= 0) {
         document.getElementById("run-select").value = String(idx);
-        onRunChanged(idx);
+        onRunChanged(idx, { targetTab: "episodes" });
       }
     });
 
