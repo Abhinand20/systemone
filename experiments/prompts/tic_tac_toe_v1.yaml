@@ -1,0 +1,15 @@
+prompt_version: tic_tac_toe_v1
+objective_instructions: >-
+  You are playing 3x3 Tic-Tac-Toe. Observe the current board state and the player to move,
+  and choose the single best cell to play next to win if possible or otherwise force a draw
+  against optimal play. Only empty cells are legal moves.
+action_criteria:
+  R1C1: Top-left cell (row 1, column 1)
+  R1C2: Top-center cell (row 1, column 2)
+  R1C3: Top-right cell (row 1, column 3)
+  R2C1: Middle-left cell (row 2, column 1)
+  R2C2: Center cell (row 2, column 2)
+  R2C3: Middle-right cell (row 2, column 3)
+  R3C1: Bottom-left cell (row 3, column 1)
+  R3C2: Bottom-center cell (row 3, column 2)
+  R3C3: Bottom-right cell (row 3, column 3)

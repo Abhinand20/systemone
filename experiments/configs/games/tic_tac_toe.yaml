@@ -1,0 +1,28 @@
+game: tic_tac_toe
+board_size: 3
+image_size:
+  - 512
+  - 512
+default_render_variant: clean_default
+render_variants:
+  - clean_default
+  - labeled_margins
+  - dark_low_contrast
+  - thin_alt_font
+  - tilt_blur
+default_text_format: json_canonical
+text_formats:
+  - json_canonical
+  - ascii_grid
+  - coord_list
+  - json_with_history
+default_action_mode: all_9
+action_modes:
+  - all_9
+  - legal_only
+datasets:
+  dev: experiments/datasets/dev/ttt_dev_50.jsonl
+  test: experiments/datasets/test/ttt_test_240.jsonl
+  ablation: experiments/datasets/test/ttt_ablation_80.jsonl
+  pilot: experiments/datasets/test/ttt_pilot_30.jsonl
+prompt_template: experiments/prompts/tic_tac_toe_v1.yaml

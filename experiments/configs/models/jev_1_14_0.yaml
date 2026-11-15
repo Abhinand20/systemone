@@ -1,0 +1,19 @@
+model_key: jev_1_14_0
+model_id: jev-1.14.0
+provider: typesafe
+family: decision_model
+api_env_var: TYPESAFE_API_KEY
+supports_vision: true
+supports_text: true
+image_limits:
+  min_side_px: 280
+  max_side_px: 1568
+  max_image_bytes: 16777216
+  max_request_bytes: 33554432
+extra_headers_on_images:
+  TypeSafe-Danger-Zone-Images: "true"
+pricing:
+  input_per_1m_usd: 0.042
+  output_per_1m_usd: 0.0
+  thought_per_1m_usd: 0.0
+generation_config: {}

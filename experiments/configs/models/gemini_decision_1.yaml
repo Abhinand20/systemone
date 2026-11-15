@@ -1,0 +1,13 @@
+model_key: gemini_decision_1
+model_id: gemini-decision-1
+provider: google_decision
+family: decision_model
+api_env_var: GEMINI_API_KEY
+api_version: v1beta
+supports_vision: true
+supports_text: true
+pricing:
+  input_per_1m_usd: 0.10
+  output_per_1m_usd: 0.0
+  thought_per_1m_usd: 0.0
+generation_config: {}

@@ -1,0 +1,63 @@
+rows:
+  - row_id: A_jev_V
+    condition_code: A-DM-V
+    model_key: jev_1_14_0
+    use_vision: true
+    use_text: false
+    family: decision_model
+
+  - row_id: B_jev_T
+    condition_code: B-DM-T
+    model_key: jev_1_14_0
+    use_vision: false
+    use_text: true
+    family: decision_model
+
+  - row_id: D_jev_VT
+    condition_code: D-DM-VT
+    model_key: jev_1_14_0
+    use_vision: true
+    use_text: true
+    family: decision_model
+
+  - row_id: A_gdec_V
+    condition_code: A-DM-V
+    model_key: gemini_decision_1
+    use_vision: true
+    use_text: false
+    family: decision_model
+
+  - row_id: B_gdec_T
+    condition_code: B-DM-T
+    model_key: gemini_decision_1
+    use_vision: false
+    use_text: true
+    family: decision_model
+
+  - row_id: D_gdec_VT
+    condition_code: D-DM-VT
+    model_key: gemini_decision_1
+    use_vision: true
+    use_text: true
+    family: decision_model
+
+  - row_id: C_ghyd_V
+    condition_code: C-VLM-V
+    model_key: gemini_4_hydrogen
+    use_vision: true
+    use_text: false
+    family: generative
+
+  - row_id: E_ghyd_VT
+    condition_code: E-VLM-VT
+    model_key: gemini_4_hydrogen
+    use_vision: true
+    use_text: true
+    family: generative
+
+  - row_id: F_ghyd_T
+    condition_code: F-LLM-T
+    model_key: gemini_4_hydrogen
+    use_vision: false
+    use_text: true
+    family: generative
