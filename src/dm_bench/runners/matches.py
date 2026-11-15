@@ -10,6 +10,8 @@ import random
 import time
 from typing import Any, Literal
 
+from rich.console import Console
+
 from dm_bench.adapters.factory import build_row_adapters, close_adapters
 from dm_bench.config import (
     BudgetExceededError,
@@ -49,9 +51,11 @@ from dm_bench.logging_io import (
     MediaStore,
     RunLogger,
     generate_run_id,
+    normalize_run_name,
     sha256_json,
     utc_now_iso,
 )
+from dm_bench.runners.progress import EvalProgressTracker
 
 OPPONENT_TYPES: tuple[Literal["random", "minimax"], ...] = ("random", "minimax")
 DEFAULT_ACTION_MODES: tuple[Literal["all_9", "legal_only"], ...] = ("all_9", "legal_only")
@@ -108,13 +112,15 @@ def _compute_probability_masses(
 def _build_match_schedule(
     row_ids: list[str],
     action_modes: list[Literal["all_9", "legal_only"]],
+    opponents: list[Literal["random", "minimax"]] | None = None,
     *,
     pilot: bool,
 ) -> list[_MatchSpec]:
+    selected_opponents = opponents if opponents is not None else list(OPPONENT_TYPES)
     specs: list[_MatchSpec] = []
     for action_mode in action_modes:
         n_games = _games_per_opponent(action_mode, pilot=pilot)
-        for opponent_type in OPPONENT_TYPES:
+        for opponent_type in selected_opponents:
             for game_idx in range(n_games):
                 agent_mark, goes_first = TURN_SCHEDULE_BLOCK[game_idx % 4]
                 starting_player: Mark = agent_mark if goes_first else other_mark(agent_mark)
@@ -157,22 +163,39 @@ async def run_matches_experiment(
     resume_run_id: str | None = None,
     row_ids: list[str] | None = None,
     action_modes: list[str] | None = None,
+    opponents: list[str] | None = None,
+    run_name: str | None = None,
+    show_progress: bool = True,
+    console: Console | None = None,
 ) -> Path:
     """Run Track 2 closed-loop T6 matches vs random and minimax with checkpoint resume."""
     root = find_repo_root(repo_root)
     load_env(root)
+    clean_run_name = normalize_run_name(run_name)
 
     experiment_id = "T6"
     game_cfg = load_game_config("tic_tac_toe", root)
     prompt_cfg = load_prompt_config(game_cfg.prompt_template, root)
     matrix_cfg = load_core_matrix(root)
 
-    target_row_ids = list(row_ids) if row_ids is not None else matrix_cfg.row_ids()
+    target_row_ids = list(dict.fromkeys(row_ids)) if row_ids is not None else matrix_cfg.row_ids()
     selected_modes: list[Literal["all_9", "legal_only"]] = []
-    for mode in (action_modes if action_modes is not None else list(DEFAULT_ACTION_MODES)):
+    for mode in dict.fromkeys(
+        action_modes if action_modes is not None else list(DEFAULT_ACTION_MODES)
+    ):
         if mode not in ("all_9", "legal_only"):
             raise ValueError(f"Unsupported action_mode: {mode!r}")
         selected_modes.append(mode)  # type: ignore[arg-type]
+    if not selected_modes:
+        raise ValueError("action_modes must be non-empty")
+
+    selected_opponents: list[Literal["random", "minimax"]] = []
+    for opp in dict.fromkeys(opponents if opponents is not None else list(OPPONENT_TYPES)):
+        if opp not in OPPONENT_TYPES:
+            raise ValueError(f"Unsupported opponent_type: {opp!r}")
+        selected_opponents.append(opp)  # type: ignore[arg-type]
+    if not selected_opponents:
+        raise ValueError("opponents must be non-empty")
 
     results_base = root / "experiments" / "results" / experiment_id
     if resume_run_id is not None:
@@ -186,7 +209,7 @@ async def run_matches_experiment(
         initial_spent_usd = sum(d.api_cost_usd for d in existing_decisions)
         existing_manifest = logger.load_manifest()
     else:
-        run_id = generate_run_id(experiment_id)
+        run_id = generate_run_id(experiment_id, name=clean_run_name)
         run_dir = results_base / run_id
         logger = RunLogger(run_dir)
         existing_episode_keys = set()
@@ -213,6 +236,9 @@ async def run_matches_experiment(
         manifest = existing_manifest.model_copy(
             update={
                 "status": "running",
+                "run_name": (
+                    clean_run_name if clean_run_name is not None else existing_manifest.run_name
+                ),
                 "updated_at_utc": now,
                 "completed_at_utc": None,
                 "max_cost_usd": max_cost_usd,
@@ -223,6 +249,7 @@ async def run_matches_experiment(
         manifest = RunManifest(
             experiment_id=experiment_id,
             run_id=run_id,
+            run_name=clean_run_name,
             game=game_cfg.game,
             status="running",
             created_at_utc=now,
@@ -242,7 +269,12 @@ async def run_matches_experiment(
     media_store = MediaStore(repo_root=root)
     frame_cache: dict[tuple[tuple[str, ...], Mark], ImageFrame] = {}
 
-    all_specs = _build_match_schedule(target_row_ids, selected_modes, pilot=pilot)
+    all_specs = _build_match_schedule(
+        target_row_ids,
+        selected_modes,
+        selected_opponents,
+        pilot=pilot,
+    )
     pending_specs = [
         spec
         for spec in all_specs
@@ -250,9 +282,27 @@ async def run_matches_experiment(
         not in existing_episode_keys
     ]
 
-    sem = asyncio.Semaphore(max(1, concurrency))
+    sem_limit = max(1, concurrency)
+    sems_by_model: dict[tuple[str, str], asyncio.Semaphore] = {
+        (model_cfg.provider, model_cfg.model_key): asyncio.Semaphore(sem_limit)
+        for _, model_cfg, _ in adapters.values()
+    }
     budget_halted = False
     run_error: Exception | None = None
+    progress = EvalProgressTracker(
+        experiment_id=experiment_id,
+        run_id=run_id,
+        unit_label="games",
+        total_units=len(all_specs),
+        already_completed=len(all_specs) - len(pending_specs),
+        rows=target_row_ids,
+        concurrency=concurrency,
+        max_cost_usd=max_cost_usd,
+        initial_spent_usd=initial_spent_usd,
+        run_dir=run_dir,
+        console=console,
+        enabled=show_progress,
+    )
 
     def _get_clean_frame(state: TTTState) -> ImageFrame:
         cache_key = (state.board, state.player_to_move)
@@ -271,11 +321,12 @@ async def run_matches_experiment(
 
     async def _play_episode(spec: _MatchSpec) -> None:
         nonlocal budget_halted
+        row_cfg, model_cfg, adapter = adapters[spec.row_id]
+        sem = sems_by_model[(model_cfg.provider, model_cfg.model_key)]
         async with sem:
             if budget_halted:
                 return
 
-            row_cfg, model_cfg, adapter = adapters[spec.row_id]
             opponent_mark = other_mark(spec.agent_mark)
             rng = random.Random(spec.episode_seed)
             state = new_ttt_state(starting_player=spec.starting_player)
@@ -365,6 +416,7 @@ async def run_matches_experiment(
                     measured_e2e_ms = (time.perf_counter() - t0) * 1000.0
                 except BudgetExceededError:
                     budget_halted = True
+                    progress.note_budget_halt()
                     return
                 except Exception as exc:
                     measured_e2e_ms = 0.0
@@ -473,6 +525,15 @@ async def run_matches_experiment(
                     raw_response=result.raw_response,
                 )
                 logger.log_decision(decision_row)
+                progress.record_decision(
+                    row_id=row_cfg.row_id,
+                    valid=result.response_valid,
+                    legal=is_legal,
+                    cost_usd=result.api_cost_usd,
+                    error_type=result.error_type,
+                    error_message=result.error_message,
+                    episode_id=spec.episode_id,
+                )
 
                 num_agent_turns += 1
                 if not result.response_valid:
@@ -545,10 +606,12 @@ async def run_matches_experiment(
                 timestamp_utc=utc_now_iso(),
             )
             logger.log_episode(episode_row)
+            progress.advance(1)
 
     try:
-        if pending_specs:
-            await asyncio.gather(*(_play_episode(spec) for spec in pending_specs))
+        with progress:
+            if pending_specs:
+                await asyncio.gather(*(_play_episode(spec) for spec in pending_specs))
     except Exception as exc:
         run_error = exc
         raise

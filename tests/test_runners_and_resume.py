@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from pathlib import Path
 import shutil
 from typing import Any
 
 import pytest
+from rich.console import Console
 
 from dm_bench import cli
 from dm_bench.adapters.base import PolicyAdapter
@@ -22,9 +24,10 @@ from dm_bench.config import (
 from dm_bench.contracts import PolicyRequest, PolicyResult
 from dm_bench.games.tic_tac_toe.engine import CELL_KEYS, other_mark
 from dm_bench.games.tic_tac_toe.oracle import choose_minimax_action
-from dm_bench.logging_io import RunLogger
+from dm_bench.logging_io import RunLogger, generate_run_id, normalize_run_name, slugify_run_name
 from dm_bench.runners.matches import run_matches_experiment
 from dm_bench.runners.offline import run_offline_experiment
+from dm_bench.runners.progress import EvalProgressTracker
 
 
 def _make_temp_repo(tmp_path: Path) -> Path:
@@ -513,4 +516,331 @@ def test_cli_check_env_eval_and_run_discovery(tmp_path: Path) -> None:
     rc_analyze = cli.main(["--repo-root", str(tmp_repo), "analyze", "--tag", "pilot_e2e"])
     assert rc_analyze == 0
     assert (tmp_repo / "analysis" / "reports" / "pilot_e2e_summary.md").is_file()
+
+
+def test_run_name_helpers_and_cli_name_propagation(tmp_path: Path) -> None:
+    assert normalize_run_name(None) is None
+    assert normalize_run_name("   ") is None
+    assert normalize_run_name("  Structured JSON v2  ") == "Structured JSON v2"
+    assert slugify_run_name("Structured JSON v2!") == "structured-json-v2"
+    assert slugify_run_name("!!!") == ""
+
+    named_id = generate_run_id("T1_T2", name="Structured JSON v2")
+    assert named_id.startswith("T1_T2_")
+    assert "_structured-json-v2_" in named_id
+    unnamed_id = generate_run_id("T1_T2", name="   ")
+    assert unnamed_id.startswith("T1_T2_")
+    assert unnamed_id.count("_") == 3  # T1, T2, timestamp, suffix
+
+    tmp_repo = _make_temp_repo(tmp_path)
+
+    rc_smoke = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "smoke",
+            "--mock",
+            "--rows",
+            "B_jev_T",
+            "--latency-trials",
+            "0",
+            "--name",
+            "Smoke Check #1",
+        ]
+    )
+    assert rc_smoke == 0
+    smoke_dirs = list((tmp_repo / "experiments" / "results" / "M0_smoke").iterdir())
+    assert len(smoke_dirs) == 1
+    assert "_smoke-check-1_" in smoke_dirs[0].name
+    smoke_manifest = RunLogger(smoke_dirs[0]).load_manifest()
+    assert smoke_manifest is not None
+    assert smoke_manifest.run_name == "Smoke Check #1"
+
+    rc_eval = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "eval",
+            "--exp",
+            "T1_T2",
+            "--pilot",
+            "--mock",
+            "--rows",
+            "B_jev_T",
+            "--name",
+            "Jev JSON v2",
+        ]
+    )
+    assert rc_eval == 0
+    t1_dirs = list((tmp_repo / "experiments" / "results" / "T1_T2").iterdir())
+    assert len(t1_dirs) == 1
+    assert "_jev-json-v2_" in t1_dirs[0].name
+    t1_manifest = RunLogger(t1_dirs[0]).load_manifest()
+    assert t1_manifest is not None
+    assert t1_manifest.run_name == "Jev JSON v2"
+
+
+def test_cli_eval_t6_action_modes_and_opponents_filters(tmp_path: Path) -> None:
+    tmp_repo = _make_temp_repo(tmp_path)
+
+    rc_all9 = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "eval",
+            "--exp",
+            "T6",
+            "--pilot",
+            "--mock",
+            "--rows",
+            "A_jev_V",
+            "A_gdec_V",
+            "--action-modes",
+            "all_9",
+            "--opponents",
+            "random",
+            "minimax",
+            "--name",
+            "jev-gdec-v-all9",
+        ]
+    )
+    assert rc_all9 == 0
+    t6_dirs = list((tmp_repo / "experiments" / "results" / "T6").iterdir())
+    assert len(t6_dirs) == 1
+    logger = RunLogger(t6_dirs[0])
+    manifest = logger.load_manifest()
+    assert manifest is not None
+    assert manifest.action_modes == ["all_9"]
+    assert manifest.total_episodes == 80
+    episodes = logger.load_episodes()
+    assert len(episodes) == 80
+    assert {ep.action_mode for ep in episodes} == {"all_9"}
+    assert {ep.opponent_type for ep in episodes} == {"random", "minimax"}
+
+    rc_minimax = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "eval",
+            "--exp",
+            "T6",
+            "--pilot",
+            "--mock",
+            "--rows",
+            "A_jev_V,A_gdec_V",
+            "--action-modes",
+            "all_9",
+            "--opponents",
+            "minimax",
+        ]
+    )
+    assert rc_minimax == 0
+    t6_dirs = sorted((tmp_repo / "experiments" / "results" / "T6").iterdir(), key=lambda p: p.stat().st_mtime)
+    assert len(t6_dirs) == 2
+    minimax_episodes = RunLogger(t6_dirs[-1]).load_episodes()
+    assert len(minimax_episodes) == 40
+    assert {ep.opponent_type for ep in minimax_episodes} == {"minimax"}
+
+    with pytest.raises(ValueError, match="only supported with --exp T6 or --exp all"):
+        cli.main(
+            [
+                "--repo-root",
+                str(tmp_repo),
+                "eval",
+                "--exp",
+                "T1_T2",
+                "--pilot",
+                "--mock",
+                "--action-modes",
+                "all_9",
+            ]
+        )
+
+
+def test_eval_progress_reporting_non_tty_and_tty(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tmp_repo = _make_temp_repo(tmp_path)
+
+    rc = cli.main(
+        [
+            "--repo-root",
+            str(tmp_repo),
+            "eval",
+            "--exp",
+            "T6",
+            "--pilot",
+            "--mock",
+            "--rows",
+            "A_jev_V",
+            "--action-modes",
+            "all_9",
+            "--opponents",
+            "random",
+        ]
+    )
+    assert rc == 0
+    captured = capsys.readouterr().out
+    assert "pending=20/20 games" in captured
+    assert "[T6] 20/20 games (100%)" in captured
+    assert "calls=" in captured
+
+    # Direct TTY Rich Progress + invalid response + budget halt notice
+    buf = io.StringIO()
+    tty_console = Console(file=buf, force_terminal=True, width=120)
+    with EvalProgressTracker(
+        experiment_id="T1_T2",
+        run_id="t1_tty_test",
+        unit_label="decisions",
+        total_units=2,
+        already_completed=0,
+        rows=["A_jev_V"],
+        concurrency=1,
+        max_cost_usd=0.05,
+        console=tty_console,
+    ) as tracker:
+        tracker.record_decision(
+            row_id="A_jev_V",
+            valid=False,
+            legal=False,
+            cost_usd=0.0,
+            error_type="TimeoutError",
+            error_message="timed out",
+            episode_id="pos_0001",
+        )
+        tracker.advance(1)
+        tracker.note_budget_halt()
+
+    tty_out = buf.getvalue()
+    assert "pending=2/2 decisions" in tty_out
+    assert "invalid response: TimeoutError: timed out" in tty_out
+    assert "halted at budget cap" in tty_out
+
+
+async def test_runners_isolate_concurrency_semaphores_per_provider_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Slow/throttled Gemini calls must not starve TypeSafe Jev workers in T6 or offline runners."""
+    tmp_repo = _make_temp_repo(tmp_path)
+    matrix = load_core_matrix(tmp_repo)
+    models = load_all_model_configs(tmp_repo)
+
+    class _GatedStubAdapter(_StubAdapter):
+        def __init__(
+            self,
+            row_cfg: ConditionRowConfig,
+            model_cfg: ModelConfig,
+            *,
+            gate_event: asyncio.Event | None = None,
+            entered_event: asyncio.Event | None = None,
+            on_fast_done: asyncio.Event | None = None,
+        ) -> None:
+            super().__init__(row_cfg, model_cfg, cost_per_call=0.001)
+            self.gate_event = gate_event
+            self.entered_event = entered_event
+            self.on_fast_done = on_fast_done
+
+        async def decide(self, request: PolicyRequest) -> PolicyResult:
+            if self.entered_event is not None:
+                self.entered_event.set()
+            if self.gate_event is not None:
+                await asyncio.wait_for(self.gate_event.wait(), timeout=2.0)
+            res = await super().decide(request)
+            if self.on_fast_done is not None:
+                self.on_fast_done.set()
+            return res
+
+    # 1) Offline runner: concurrency=1; A_gdec_V blocks on gdec_gate until A_jev_V finishes.
+    gdec_entered = asyncio.Event()
+    gdec_gate = asyncio.Event()
+    jev_finished = asyncio.Event()
+
+    def _build_offline_stubs(
+        repo_root: Path | None = None,
+        *,
+        mock: bool = False,
+        budget_tracker: BudgetTracker | None = None,
+        row_ids: list[str] | None = None,
+    ) -> dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]]:
+        selected = row_ids if row_ids is not None else ["A_gdec_V", "A_jev_V"]
+        out: dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]] = {}
+        for rid in selected:
+            rcfg = matrix.get_row(rid)
+            mcfg = models[rcfg.model_key]
+            if rid == "A_gdec_V":
+                adapter = _GatedStubAdapter(
+                    rcfg, mcfg, gate_event=gdec_gate, entered_event=gdec_entered
+                )
+            else:
+                adapter = _GatedStubAdapter(rcfg, mcfg, on_fast_done=jev_finished)
+            out[rid] = (rcfg, mcfg, adapter)
+        return out
+
+    monkeypatch.setattr("dm_bench.runners.offline.build_row_adapters", _build_offline_stubs)
+
+    async def _release_offline_after_jev() -> None:
+        await asyncio.wait_for(gdec_entered.wait(), timeout=2.0)
+        await asyncio.wait_for(jev_finished.wait(), timeout=2.0)
+        gdec_gate.set()
+
+    offline_task = asyncio.create_task(
+        run_offline_experiment(
+            "T1_T2",
+            repo_root=tmp_repo,
+            pilot=True,
+            concurrency=1,
+            row_ids=["A_gdec_V", "A_jev_V"],
+            show_progress=False,
+        )
+    )
+    releaser_offline = asyncio.create_task(_release_offline_after_jev())
+    await asyncio.gather(offline_task, releaser_offline)
+
+    # 2) T6 matches runner: concurrency=1; A_gdec_V blocks on gdec_gate until A_jev_V completes a turn.
+    t6_gdec_entered = asyncio.Event()
+    t6_gdec_gate = asyncio.Event()
+    t6_jev_finished = asyncio.Event()
+
+    def _build_match_stubs(
+        repo_root: Path | None = None,
+        *,
+        mock: bool = False,
+        budget_tracker: BudgetTracker | None = None,
+        row_ids: list[str] | None = None,
+    ) -> dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]]:
+        selected = row_ids if row_ids is not None else ["A_gdec_V", "A_jev_V"]
+        out: dict[str, tuple[ConditionRowConfig, ModelConfig, _StubAdapter]] = {}
+        for rid in selected:
+            rcfg = matrix.get_row(rid)
+            mcfg = models[rcfg.model_key]
+            if rid == "A_gdec_V":
+                adapter = _GatedStubAdapter(
+                    rcfg, mcfg, gate_event=t6_gdec_gate, entered_event=t6_gdec_entered
+                )
+            else:
+                adapter = _GatedStubAdapter(rcfg, mcfg, on_fast_done=t6_jev_finished)
+            out[rid] = (rcfg, mcfg, adapter)
+        return out
+
+    monkeypatch.setattr("dm_bench.runners.matches.build_row_adapters", _build_match_stubs)
+
+    async def _release_t6_after_jev() -> None:
+        await asyncio.wait_for(t6_gdec_entered.wait(), timeout=2.0)
+        await asyncio.wait_for(t6_jev_finished.wait(), timeout=2.0)
+        t6_gdec_gate.set()
+
+    t6_task = asyncio.create_task(
+        run_matches_experiment(
+            repo_root=tmp_repo,
+            pilot=True,
+            concurrency=1,
+            row_ids=["A_gdec_V", "A_jev_V"],
+            action_modes=["all_9"],
+            opponents=["random"],
+            show_progress=False,
+        )
+    )
+    releaser_t6 = asyncio.create_task(_release_t6_after_jev())
+    await asyncio.gather(t6_task, releaser_t6)
+
+
+
 

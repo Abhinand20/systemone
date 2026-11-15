@@ -8,6 +8,8 @@ from pathlib import Path
 import time
 from typing import Any, Literal
 
+from rich.console import Console
+
 from dm_bench.adapters.factory import build_row_adapters, close_adapters
 from dm_bench.config import (
     BudgetExceededError,
@@ -37,9 +39,11 @@ from dm_bench.logging_io import (
     MediaStore,
     RunLogger,
     generate_run_id,
+    normalize_run_name,
     sha256_json,
     utc_now_iso,
 )
+from dm_bench.runners.progress import EvalProgressTracker
 
 T3_DEFAULT_ROWS: tuple[str, ...] = ("A_jev_V", "A_gdec_V", "C_ghyd_V")
 T3_VARIANTS: tuple[str, ...] = (
@@ -198,10 +202,14 @@ async def run_offline_experiment(
     max_cost_usd: float = 10.0,
     resume_run_id: str | None = None,
     row_ids: list[str] | None = None,
+    run_name: str | None = None,
+    show_progress: bool = True,
+    console: Console | None = None,
 ) -> Path:
     """Run Track 1 offline evaluation (T1..T5) with bounded concurrency and checkpoint resume."""
     root = find_repo_root(repo_root)
     load_env(root)
+    clean_run_name = normalize_run_name(run_name)
 
     spec = _resolve_offline_spec(experiment_id, pilot=pilot, full_240=full_240)
     game_cfg = load_game_config("tic_tac_toe", root)
@@ -233,7 +241,7 @@ async def run_offline_experiment(
         initial_spent_usd = sum(d.api_cost_usd for d in existing_decisions)
         existing_manifest = logger.load_manifest()
     else:
-        run_id = generate_run_id(spec.experiment_id)
+        run_id = generate_run_id(spec.experiment_id, name=clean_run_name)
         run_dir = results_base / run_id
         logger = RunLogger(run_dir)
         existing_keys = set()
@@ -260,6 +268,9 @@ async def run_offline_experiment(
         manifest = existing_manifest.model_copy(
             update={
                 "status": "running",
+                "run_name": (
+                    clean_run_name if clean_run_name is not None else existing_manifest.run_name
+                ),
                 "updated_at_utc": now,
                 "completed_at_utc": None,
                 "max_cost_usd": max_cost_usd,
@@ -270,6 +281,7 @@ async def run_offline_experiment(
         manifest = RunManifest(
             experiment_id=spec.experiment_id,
             run_id=run_id,
+            run_name=clean_run_name,
             game=game_cfg.game,
             status="running",
             created_at_utc=now,
@@ -318,9 +330,28 @@ async def run_offline_experiment(
             saved_frame = media_store.save_frame(ImageFrame(png_bytes=png_bytes))
             frame_cache[cache_key] = saved_frame
 
-    sem = asyncio.Semaphore(max(1, concurrency))
+    sem_limit = max(1, concurrency)
+    sems_by_model: dict[tuple[str, str], asyncio.Semaphore] = {
+        (model_cfg.provider, model_cfg.model_key): asyncio.Semaphore(sem_limit)
+        for _, model_cfg, _ in adapters.values()
+    }
     budget_halted = False
     run_error: Exception | None = None
+
+    progress = EvalProgressTracker(
+        experiment_id=spec.experiment_id,
+        run_id=run_id,
+        unit_label="decisions",
+        total_units=len(all_items),
+        already_completed=len(all_items) - len(pending_items),
+        rows=target_row_ids,
+        concurrency=concurrency,
+        max_cost_usd=max_cost_usd,
+        initial_spent_usd=initial_spent_usd,
+        run_dir=run_dir,
+        console=console,
+        enabled=show_progress,
+    )
 
     async def _process_item(item: _OfflineWorkItem) -> None:
         nonlocal budget_halted
@@ -376,6 +407,7 @@ async def run_offline_experiment(
             },
         )
 
+        sem = sems_by_model[(model_cfg.provider, model_cfg.model_key)]
         async with sem:
             if budget_halted:
                 return
@@ -386,6 +418,7 @@ async def run_offline_experiment(
                 measured_e2e_ms = (time.perf_counter() - t0) * 1000.0
             except BudgetExceededError:
                 budget_halted = True
+                progress.note_budget_halt()
                 return
             except Exception as exc:
                 measured_e2e_ms = 0.0
@@ -487,10 +520,21 @@ async def run_offline_experiment(
             raw_response=result.raw_response,
         )
         logger.log_decision(log_row)
+        progress.record_decision(
+            row_id=row_cfg.row_id,
+            valid=result.response_valid,
+            legal=move_eval.is_legal and result.response_valid,
+            cost_usd=result.api_cost_usd,
+            error_type=result.error_type,
+            error_message=result.error_message,
+            episode_id=pos_id,
+        )
+        progress.advance(1)
 
     try:
-        if pending_items:
-            await asyncio.gather(*(_process_item(item) for item in pending_items))
+        with progress:
+            if pending_items:
+                await asyncio.gather(*(_process_item(item) for item in pending_items))
     except Exception as exc:
         run_error = exc
         raise

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -47,11 +48,37 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def generate_run_id(prefix: str | None = None) -> str:
-    """Generate a unique timestamped run identifier."""
+_RUN_SLUG_RE = re.compile(r"[^a-z0-9_-]+")
+_MULTI_DASH_RE = re.compile(r"-{2,}")
+
+
+def normalize_run_name(name: str | None) -> str | None:
+    """Strip whitespace from an optional run label, returning None when blank."""
+    if name is None:
+        return None
+    cleaned = name.strip()
+    return cleaned or None
+
+
+def slugify_run_name(name: str | None, *, max_len: int = 40) -> str:
+    """Convert an optional run label into a filesystem-safe lowercase slug."""
+    cleaned = normalize_run_name(name)
+    if not cleaned:
+        return ""
+    slug = _RUN_SLUG_RE.sub("-", cleaned.lower())
+    slug = _MULTI_DASH_RE.sub("-", slug).strip("-_")
+    if max_len > 0 and len(slug) > max_len:
+        slug = slug[:max_len].rstrip("-_")
+    return slug
+
+
+def generate_run_id(prefix: str | None = None, name: str | None = None) -> str:
+    """Generate a unique timestamped run identifier with an optional sanitized name slug."""
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     suffix = uuid.uuid4().hex[:8]
-    return f"{prefix}_{stamp}_{suffix}" if prefix else f"{stamp}_{suffix}"
+    slug = slugify_run_name(name)
+    parts = [part for part in (prefix, stamp, slug, suffix) if part]
+    return "_".join(parts)
 
 
 def _atomic_write_bytes(target: Path, data: bytes) -> None:

@@ -119,6 +119,7 @@ def _cmd_smoke(args: argparse.Namespace, repo_root: Path) -> int:
             models=models,
             latency_trials=args.latency_trials,
             max_cost_usd=args.max_cost_usd,
+            run_name=args.name,
         )
     )
     console.print(f"[bold green]Smoke run finished:[/bold green] {summary.get('run_dir')}")
@@ -131,8 +132,9 @@ def _print_run_summary(run_dir: Path) -> None:
     if manifest is None:
         console.print(f"Run finished: {run_dir}")
         return
+    name_part = f" name={manifest.run_name!r}" if manifest.run_name else ""
     console.print(
-        f"[bold]{manifest.experiment_id}[/bold] run_id={manifest.run_id} "
+        f"[bold]{manifest.experiment_id}[/bold] run_id={manifest.run_id}{name_part} "
         f"status={manifest.status} decisions={manifest.total_decisions} "
         f"episodes={manifest.total_episodes} spent=${manifest.total_spent_usd:.6f} "
         f"dir={run_dir}"
@@ -144,7 +146,12 @@ def _cmd_eval(args: argparse.Namespace, repo_root: Path) -> int:
     from dm_bench.runners.offline import run_offline_experiment
 
     rows = _parse_list_arg(args.rows)
+    action_modes = _parse_list_arg(args.action_modes)
+    opponents = _parse_list_arg(args.opponents)
     exp = args.exp
+
+    if (action_modes is not None or opponents is not None) and exp not in ("T6", "all"):
+        raise ValueError("--action-modes and --opponents are only supported with --exp T6 or --exp all")
 
     if exp == "all":
         if args.resume_run_id is not None:
@@ -171,6 +178,8 @@ def _cmd_eval(args: argparse.Namespace, repo_root: Path) -> int:
                     concurrency=args.concurrency,
                     max_cost_usd=args.max_cost_usd,
                     row_ids=exp_rows,
+                    run_name=args.name,
+                    console=console,
                 )
             )
             _print_run_summary(run_dir)
@@ -182,6 +191,10 @@ def _cmd_eval(args: argparse.Namespace, repo_root: Path) -> int:
                 concurrency=args.concurrency,
                 max_cost_usd=args.max_cost_usd,
                 row_ids=rows,
+                action_modes=action_modes,
+                opponents=opponents,
+                run_name=args.name,
+                console=console,
             )
         )
         _print_run_summary(run_dir)
@@ -197,6 +210,10 @@ def _cmd_eval(args: argparse.Namespace, repo_root: Path) -> int:
                 max_cost_usd=args.max_cost_usd,
                 resume_run_id=args.resume_run_id,
                 row_ids=rows,
+                action_modes=action_modes,
+                opponents=opponents,
+                run_name=args.name,
+                console=console,
             )
         )
         _print_run_summary(run_dir)
@@ -213,6 +230,8 @@ def _cmd_eval(args: argparse.Namespace, repo_root: Path) -> int:
             max_cost_usd=args.max_cost_usd,
             resume_run_id=args.resume_run_id,
             row_ids=rows,
+            run_name=args.name,
+            console=console,
         )
     )
     _print_run_summary(run_dir)
@@ -296,6 +315,11 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_p.add_argument("--models", nargs="+", default=None, help="Filter specific model_keys.")
     smoke_p.add_argument("--latency-trials", type=int, default=10, help="Sequential latency trials.")
     smoke_p.add_argument("--max-cost-usd", type=float, default=1.0, help="Hard USD spend cap.")
+    smoke_p.add_argument(
+        "--name",
+        default=None,
+        help="Optional label for this run (added to run_id, manifest, and trace viewer).",
+    )
 
     eval_p = subparsers.add_parser("eval", help="Run Track 1 (T1-T5) or Track 2 (T6) evaluation.")
     eval_p.add_argument(
@@ -311,6 +335,23 @@ def build_parser() -> argparse.ArgumentParser:
     eval_p.add_argument("--max-cost-usd", type=float, default=10.0, help="Hard USD spend cap.")
     eval_p.add_argument("--resume-run-id", default=None, help="Resume an existing run_id.")
     eval_p.add_argument("--rows", nargs="+", default=None, help="Optional row_id filter.")
+    eval_p.add_argument(
+        "--action-modes",
+        nargs="+",
+        default=None,
+        help="Optional T6 action_modes filter (all_9, legal_only).",
+    )
+    eval_p.add_argument(
+        "--opponents",
+        nargs="+",
+        default=None,
+        help="Optional T6 opponent filter (random, minimax).",
+    )
+    eval_p.add_argument(
+        "--name",
+        default=None,
+        help="Optional label for this run (added to run_id, manifest, and trace viewer).",
+    )
 
     analyze_p = subparsers.add_parser("analyze", help="Compute stats, plots, and Markdown report.")
     analyze_p.add_argument("--runs", nargs="+", default=None, help="Explicit run directories to analyze.")

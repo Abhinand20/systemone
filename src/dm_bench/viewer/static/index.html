@@ -1797,6 +1797,9 @@
       const modeBadge = isMock
         ? '<span class="badge badge-amber" title="Stubbed model outputs for offline pipeline testing">Simulated Mock Data (No Live API Calls)</span>'
         : '<span class="badge badge-green">Live Model APIs</span>';
+      const nameBadge = run.run_name
+        ? `<span class="badge badge-blue" title="Custom run name (--name)">${esc(run.run_name)}</span>`
+        : "";
       const pilotBadge = isPilot ? '<span class="badge badge-slate">Pilot Sample</span>' : "";
       const totalEp = Number(run.total_episodes ?? 0);
       const totalDec = Number(run.total_decisions ?? 0);
@@ -1811,9 +1814,11 @@
           <div class="run-banner-info">
             <div class="run-banner-title-row">
               <span class="run-banner-title">${esc(meta.title)}</span>
+              ${nameBadge}
               ${modeBadge}
               ${pilotBadge}
               ${created ? `<span class="muted" style="font-size:12px;">${esc(created)}</span>` : ""}
+              <span class="mono muted" style="font-size:11px;" title="Run ID on disk">${esc(run.run_id)}</span>
             </div>
             <div class="run-banner-desc">
               ${esc(meta.desc)}
@@ -1834,11 +1839,13 @@
     function formatRunOptionLabel(r) {
       const meta = EXPERIMENT_META[r.experiment_id] || { title: r.experiment_id };
       const tag = r.mock_mode ? "Mock Dry-Run" : "Live API";
+      const customName = r.run_name ? String(r.run_name).trim() : "";
+      const namePrefix = customName ? `${customName} · ` : "";
       const epCount = Number(r.total_episodes ?? 0);
       const decCount = Number(r.total_decisions ?? 0);
       const scale = epCount > 0 ? `${epCount} games (${decCount} turns)` : `${decCount} moves`;
       const ts = fmtTimestamp(r.created_at_utc);
-      return `[${tag}] ${meta.title} · ${scale}${ts ? " · " + ts : ""}`;
+      return `[${tag}] ${namePrefix}${meta.title} · ${scale}${ts ? " · " + ts : ""}`;
     }
 
     async function loadRuns() {
@@ -2301,7 +2308,9 @@
         : '<span class="badge badge-green">Live Model APIs</span>';
       const runChips = incRuns.map((r) => {
         const meta = EXPERIMENT_META[r.experiment_id];
-        return `<span class="badge badge-slate" title="${esc(r.experiment_id)} / ${esc(r.run_id)}">${esc(meta ? meta.short : r.experiment_id)}</span>`;
+        const base = meta ? meta.short : r.experiment_id;
+        const label = r.run_name ? `${base}: ${r.run_name}` : base;
+        return `<span class="badge badge-slate" title="${esc(r.experiment_id)} / ${esc(r.run_id)}">${esc(label)}</span>`;
       }).join("");
       const totals = s.totals || {};
       badgesEl.innerHTML = `

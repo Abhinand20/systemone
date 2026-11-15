@@ -8,6 +8,7 @@ import json
 from typing import Any
 
 from google import genai
+from google.genai import types
 
 from dm_bench.adapters.base import GenerativeAdapter, compute_request_payload_hash
 from dm_bench.adapters.retry import (
@@ -94,9 +95,13 @@ class GeminiGenerativeAdapter(GenerativeAdapter):
                     f"API key is required for {model_config.model_key} ({model_config.api_env_var})"
                 )
             api_version = model_config.api_version or "v1"
+            # Disable SDK-internal HTTP retries so call_with_retry tracks retries and separates backoff from model_latency_ms.
             self._client = genai.Client(
                 api_key=api_key,
-                http_options={"api_version": api_version},
+                http_options=types.HttpOptions(
+                    api_version=api_version,
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                ),
             )
 
     def _build_input_blocks(self, request: PolicyRequest) -> list[dict[str, Any]]:

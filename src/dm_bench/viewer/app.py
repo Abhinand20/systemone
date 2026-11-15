@@ -950,6 +950,7 @@ def create_app(repo_root: Path | None = None) -> FastAPI:
                 {
                     "experiment_id": str(e.get("experiment_id") or ""),
                     "run_id": str(e.get("run_id") or ""),
+                    "run_name": e.get("run_name"),
                     "mock_mode": bool(e.get("mock_mode", False)),
                     "pilot_mode": bool(e.get("pilot_mode", False)),
                     "total_decisions": int(e.get("total_decisions") or 0),

@@ -201,6 +201,7 @@ class RunManifest(BaseModel):
 
     experiment_id: str
     run_id: str
+    run_name: str | None = None
     game: str = "tic_tac_toe"
     status: Literal["running", "completed", "halted_budget_cap", "failed"] = "running"
     created_at_utc: str

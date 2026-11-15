@@ -431,10 +431,16 @@ async def test_gemini_decision_adapter_v1beta_and_safety_no_retry() -> None:
             close=None,
         )
 
+    from google.genai import types as genai_types
+
     with patch("dm_bench.adapters.gemini_decision.genai.Client", side_effect=fake_genai_client):
         adapter = GeminiDecisionAdapter(model_cfg, api_key="test-key", retry_base_delay=0.0)
 
-    assert init_args[0]["http_options"] == {"api_version": "v1beta"}
+    http_opts = init_args[0]["http_options"]
+    assert isinstance(http_opts, genai_types.HttpOptions)
+    assert http_opts.api_version == "v1beta"
+    assert http_opts.retry_options is not None
+    assert http_opts.retry_options.attempts == 1
     req = _sample_board_and_request(
         row_id="D_gdec_VT",
         condition_code="D-DM-VT",
@@ -465,6 +471,76 @@ async def test_gemini_decision_adapter_v1beta_and_safety_no_retry() -> None:
     assert res_safety.retries == 0
     assert res_safety.error_type == "SafetyBlockError"
     assert safety_api.count == 1
+
+
+async def test_gemini_adapters_disable_sdk_internal_retries_and_track_429() -> None:
+    import httpx
+    from google.genai._interactions import APIError as GenAIInteractionsAPIError
+
+    root = find_repo_root()
+    cfgs = load_all_model_configs(root)
+
+    # Real genai.Client instances must configure SDK-internal retries to max_retries == 0.
+    dec_adapter = GeminiDecisionAdapter(cfgs["gemini_decision_1"], api_key="test-key")
+    try:
+        assert dec_adapter._client.aio.decisions.sdk_configuration.retry_config.max_retries == 0
+    finally:
+        await dec_adapter.close()
+
+    gen_adapter = GeminiGenerativeAdapter(cfgs["gemini_4_hydrogen"], api_key="test-key")
+    try:
+        assert gen_adapter._client.aio.interactions.sdk_configuration.retry_config.max_retries == 0
+    finally:
+        await gen_adapter.close()
+
+    # Transient 429 from google-genai must be retried by call_with_retry and logged in PolicyResult.retries.
+    probs = {k: (0.76 if k == "R1C3" else 0.03) for k in CELL_KEYS}
+
+    class FlakyDecisionsAPI:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def create(self, **kwargs: Any) -> Any:
+            self.calls += 1
+            if self.calls == 1:
+                req_obj = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta/decisions")
+                resp_obj = httpx.Response(429, request=req_obj)
+                raise GenAIInteractionsAPIError.generate(
+                    status_code=429,
+                    body={"error": {"message": "Quota exceeded"}},
+                    message="Quota exceeded",
+                    response=resp_obj,
+                )
+            return SimpleNamespace(
+                answers={"action": SimpleNamespace(choice="R1C3", probabilities=probs, confidence=0.76)},
+                prompt_feedback=None,
+                usage=SimpleNamespace(
+                    total_input_tokens=500,
+                    total_output_tokens=0,
+                    total_thought_tokens=0,
+                    total_tokens=500,
+                ),
+            )
+
+    flaky_api = FlakyDecisionsAPI()
+    flaky_adapter = GeminiDecisionAdapter(
+        cfgs["gemini_decision_1"],
+        client=SimpleNamespace(aio=SimpleNamespace(decisions=flaky_api)),
+        max_retries=2,
+        retry_base_delay=0.0,
+    )
+    req = _sample_board_and_request(
+        row_id="A_gdec_V",
+        condition_code="A-DM-V",
+        model_key="gemini_decision_1",
+        use_vision=True,
+        use_text=False,
+        text_format=None,
+    )
+    res = await flaky_adapter.decide(req)
+    assert res.response_valid is True
+    assert res.retries == 1
+    assert flaky_api.calls == 2
 
 
 async def test_gemini_generative_adapter_v1_schema_billing_and_zero_retry_malformed() -> None:
@@ -501,10 +577,16 @@ async def test_gemini_generative_adapter_v1_schema_billing_and_zero_retry_malfor
             aio=SimpleNamespace(interactions=FakeInteractionsAPI('{"action": "R1C3"}')),
         )
 
+    from google.genai import types as genai_types
+
     with patch("dm_bench.adapters.gemini_generative.genai.Client", side_effect=fake_genai_client):
         adapter = GeminiGenerativeAdapter(model_cfg, api_key="test-key", retry_base_delay=0.0)
 
-    assert init_args[0]["http_options"] == {"api_version": "v1"}
+    http_opts = init_args[0]["http_options"]
+    assert isinstance(http_opts, genai_types.HttpOptions)
+    assert http_opts.api_version == "v1"
+    assert http_opts.retry_options is not None
+    assert http_opts.retry_options.attempts == 1
     req = _sample_board_and_request(
         row_id="E_ghyd_VT",
         condition_code="E-VLM-VT",

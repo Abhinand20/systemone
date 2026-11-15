@@ -34,7 +34,7 @@ from dm_bench.games.tic_tac_toe.engine import (
 from dm_bench.games.tic_tac_toe.formats import format_ttt_state
 from dm_bench.games.tic_tac_toe.oracle import analyze_position, evaluate_move
 from dm_bench.games.tic_tac_toe.renderer import render_ttt_png
-from dm_bench.logging_io import MediaStore, RunLogger, generate_run_id, utc_now_iso
+from dm_bench.logging_io import MediaStore, RunLogger, generate_run_id, normalize_run_name, utc_now_iso
 
 _REPRESENTATIVE_VT_ROW: dict[str, str] = {
     "jev_1_14_0": "D_jev_VT",
@@ -292,6 +292,7 @@ async def run_smoke(
     models: list[str] | None = None,
     latency_trials: int = 10,
     max_cost_usd: float = 1.0,
+    run_name: str | None = None,
 ) -> dict[str, Any]:
     """Run Milestone 0 contract checks and cold/warm latency benchmarks."""
     if latency_trials < 0:
@@ -339,12 +340,14 @@ async def run_smoke(
         move_history=move_history_keys,
     )
 
-    run_id = generate_run_id("m0_smoke")
+    clean_run_name = normalize_run_name(run_name)
+    run_id = generate_run_id("m0_smoke", name=clean_run_name)
     run_dir = root / "experiments" / "results" / "M0_smoke" / run_id
     now = utc_now_iso()
     manifest = RunManifest(
         experiment_id="M0_smoke",
         run_id=run_id,
+        run_name=clean_run_name,
         game="tic_tac_toe",
         status="running",
         created_at_utc=now,
@@ -534,6 +537,7 @@ async def run_smoke(
     summary: dict[str, Any] = {
         "experiment_id": "M0_smoke",
         "run_id": run_id,
+        "run_name": final_manifest.run_name,
         "run_dir": str(run_dir),
         "status": final_manifest.status,
         "mock_mode": mock,

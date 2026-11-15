@@ -595,6 +595,7 @@ def test_summary_endpoint_run_and_suite_scopes(tmp_path: Path) -> None:
     t3_manifest = RunManifest(
         experiment_id="T3",
         run_id="run_mock",
+        run_name="Blur Baseline",
         status="completed",
         mock_mode=True,
         created_at_utc="2026-11-15T02:00:00Z",
@@ -677,9 +678,15 @@ def test_summary_endpoint_run_and_suite_scopes(tmp_path: Path) -> None:
     assert mock_res.status_code == 200
     mock_data = mock_res.json()
     assert mock_data["mock_mode"] is True
-    assert [(r["experiment_id"], r["run_id"]) for r in mock_data["included_runs"]] == [
-        ("T3", "run_mock")
+    assert [(r["experiment_id"], r["run_id"], r["run_name"]) for r in mock_data["included_runs"]] == [
+        ("T3", "run_mock", "Blur Baseline")
     ]
+    runs_list = client.get("/api/runs").json()["runs"]
+    t3_entry = next(r for r in runs_list if r["run_id"] == "run_mock")
+    assert t3_entry["run_name"] == "Blur Baseline"
+    html = client.get("/").text
+    assert "run.run_name" in html
+    assert "r.run_name" in html
     assert {"immediate_win", "forced_block"}.issubset(
         set(mock_data["tactical_breakdown"]["categories"])
     )
